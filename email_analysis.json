@@ -1,0 +1,70 @@
+{
+  "projectgroupec19@gmail.com": {
+    "fetched_at": "2026-01-21T16:29:38.574923",
+    "summary": {
+      "total_membership": 5,
+      "total_offer": 2,
+      "total_coupon": 2
+    },
+    "membership": {
+      "Bank of America Preferred Rewards": {
+        "from": "Linto J <linjo102004@gmail.com>",
+        "start_date": "January 05, 2026",
+        "expiry_date": "January 04, 2027",
+        "status": "Active"
+      },
+      "Sam's Club Plus": {
+        "from": "Linto J <linjo102004@gmail.com>",
+        "start_date": "January 20, 2026",
+        "expiry_date": "January 19, 2027",
+        "status": "Active"
+      },
+      "Walmart+": {
+        "from": "Linto J <linjo102004@gmail.com>",
+        "start_date": "January 20, 2026",
+        "expiry_date": "January 19, 2027",
+        "status": "Active"
+      },
+      "Costco Gold Star Membership": {
+        "from": "Linto J <linjo102004@gmail.com>",
+        "start_date": "January 20, 2026",
+        "expiry_date": "January 19, 2027",
+        "status": "Active"
+      },
+      "Amazon Prime": {
+        "from": "Linto J <linjo102004@gmail.com>",
+        "start_date": "January 20, 2026",
+        "expiry_date": "January 19, 2027",
+        "status": "Active"
+      }
+    },
+    "offer": {
+      "Delta SkyMiles Platinum Business Card": {
+        "from": "Linto J <linjo102004@gmail.com>",
+        "date": "Wed, 21 Jan 2026 11:25:22 +0530",
+        "status": "Active"
+      },
+      "American Express Blue Cash Everyday Card": {
+        "from": "Linto J <linjo102004@gmail.com>",
+        "date": "Tue, 20 Jan 2026 21:23:03 +0530",
+        "status": "Active"
+      }
+    },
+    "coupon": {
+      "Jonathan Adler": [
+        {
+          "coupon": "Save $25 on Your Next Order",
+          "coupon_code": "GET25OFF",
+          "validity": "Valid for a limited time Usage: Apply the code at ..."
+        }
+      ],
+      "Walmart": [
+        {
+          "coupon": "15% Off Your First Purchase",
+          "coupon_code": "WELCOME15",
+          "validity": "Valid for a limited time only Usage: Apply the cod..."
+        }
+      ]
+    }
+  }
+}
