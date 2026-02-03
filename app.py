@@ -15,6 +15,7 @@ This web app provides:
 import os
 import json
 import secrets
+import gc
 from flask import Flask, render_template, redirect, url_for, session, request, jsonify
 from flask_session import Session
 from google.auth.transport.requests import Request
@@ -195,25 +196,67 @@ def analyze():
         if not emails:
             return jsonify({'error': 'No emails found'}), 404
         
-        # Analyze emails with OCR enabled
-        results = analyze_emails(emails, strict_mode=strict_mode, enable_ocr=True)
+        print(f"📧 Analyzing {len(emails)} emails...")
+        
+        # MEMORY OPTIMIZATION: Process emails in smaller batches
+        # This prevents OOM errors on Render's 512MB instances
+        BATCH_SIZE = 5  # Process 5 emails at a time
+        all_results = {
+            'membership': [],
+            'offer': [],
+            'giftcard': [],
+            'coupon': [],
+            'excluded': [],
+            'normal': []
+        }
+        
+        # Process in batches
+        for i in range(0, len(emails), BATCH_SIZE):
+            batch = emails[i:i + BATCH_SIZE]
+            batch_num = (i // BATCH_SIZE) + 1
+            total_batches = (len(emails) + BATCH_SIZE - 1) // BATCH_SIZE
+            
+            print(f"   Processing batch {batch_num}/{total_batches} ({len(batch)} emails)...")
+            
+            # Analyze batch with OCR enabled
+            batch_results = analyze_emails(batch, strict_mode=strict_mode, enable_ocr=True)
+            
+            # Merge batch results into all_results
+            for category, items in batch_results.items():
+                all_results[category].extend(items)
+            
+            # Clear batch data and force garbage collection
+            del batch
+            del batch_results
+            gc.collect()
+            
+            print(f"   ✓ Batch {batch_num} complete. Memory released.")
         
         # Process results for web display
-        processed_results = process_results_for_web(results)
+        processed_results = process_results_for_web(all_results)
+        
+        # Clear raw results from memory
+        del all_results
+        gc.collect()
         
         # Store in session for viewing
         session['analysis_results'] = processed_results
         session.modified = True  # Ensure session is saved
         
         print(f"✓ Analysis complete. Stored {len(processed_results)} result categories")
-        print(f"   Session keys after storage: {list(session.keys())}")
         
         return jsonify({
             'success': True,
             'redirect': url_for('results')
         })
     
+    except MemoryError as e:
+        gc.collect()  # Try to free memory
+        return jsonify({'error': 'Out of memory. Try analyzing fewer emails or disable OCR.'}), 500
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"❌ Error during analysis: {error_trace}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -253,6 +296,19 @@ def extract_membership_dates(subject, body, date):
 
 def process_results_for_web(results):
     """Process analysis results for web display - grouped by unique memberships/offers/coupons/giftcards."""
+    
+    # MEMORY OPTIMIZATION: Remove large body text from emails to reduce session size
+    # Keep only essential fields for display
+    def clean_email_data(email):
+        """Remove body text and other large fields from email data."""
+        cleaned = email.copy()
+        # Remove body to save memory
+        if 'body' in cleaned:
+            del cleaned['body']
+        # Keep only essential image data
+        if 'image_offers' in cleaned and len(cleaned['image_offers']) > 5:
+            cleaned['image_offers'] = cleaned['image_offers'][:5]  # Limit to 5
+        return cleaned
     
     # Group memberships by unique names
     memberships_dict = {}
@@ -354,7 +410,7 @@ def process_results_for_web(results):
         'offer': offers_dict,
         'giftcard': giftcards_list,
         'coupon': coupons_list,
-        'normal': results['normal'][:10]  # Keep original format for normal emails
+        'normal': [clean_email_data(email) for email in results['normal'][:10]]  # Clean and limit normal emails
     }
     
     return processed

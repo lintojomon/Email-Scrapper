@@ -869,6 +869,8 @@ def analyze_emails(emails: List[Dict], strict_mode: bool = False, enable_ocr: bo
     Returns:
         Dictionary with categorized emails
     """
+    import gc
+    
     results = {
         'membership': [],
         'offer': [],
@@ -932,6 +934,7 @@ def analyze_emails(emails: List[Dict], strict_mode: bool = False, enable_ocr: bo
                 missing_items.append("store name")
         
         # CONDITIONAL OCR: Extract from images to supplement or complete offer data
+        # MEMORY LIMIT: Only process OCR if really needed to conserve memory
         if needs_ocr and enable_ocr and 'payload' in email:
             try:
                 print(f"   🔍 Missing data ({', '.join(missing_items)}), using OCR...")
@@ -942,6 +945,10 @@ def analyze_emails(emails: List[Dict], strict_mode: bool = False, enable_ocr: bo
                 # Store image analysis results
                 email['image_offers'] = image_offers
                 email['image_stores'] = image_stores
+                
+                # Clear image_result to free memory
+                del image_result
+                gc.collect()
                 
                 # Re-categorize based on image content if category was Normal
                 if image_offers and email['category'] == 'Normal':
@@ -962,6 +969,11 @@ def analyze_emails(emails: List[Dict], strict_mode: bool = False, enable_ocr: bo
             email['image_offers'] = []
             email['image_stores'] = []
         
+        # MEMORY OPTIMIZATION: Remove large payload data after processing
+        # Keep only essential fields for display
+        if 'payload' in email:
+            del email['payload']
+        
         # In strict mode, only include shopping domain emails
         if strict_mode and not analysis['is_shopping_domain']:
             if analysis['category'] in ['Membership', 'Offer', 'GiftCard', 'Coupon']:
@@ -974,6 +986,9 @@ def analyze_emails(emails: List[Dict], strict_mode: bool = False, enable_ocr: bo
         category = analysis['category'].lower()
         if category in results:
             results[category].append(email)
+    
+    # Force garbage collection after processing all emails
+    gc.collect()
     
     return results
 

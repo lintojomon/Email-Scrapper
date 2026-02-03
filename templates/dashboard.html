@@ -347,6 +347,12 @@
                     body: formData
                 });
                 
+                // Check if response is JSON before parsing
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('Server error: The server may be out of memory. Try analyzing fewer emails.');
+                }
+                
                 const data = await response.json();
                 
                 if (data.success && data.redirect) {
