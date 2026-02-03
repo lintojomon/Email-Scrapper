@@ -887,6 +887,10 @@ def analyze_emails(emails: List[Dict], strict_mode: bool = False, enable_ocr: bo
         subject = email['subject']
         body = email.get('body', '')
         
+        # MEMORY OPTIMIZATION: Truncate body to first 5000 chars to reduce memory
+        if len(body) > 5000:
+            body = body[:5000]
+        
         # PRIVACY-FOCUSED: Analyze subject + sender + body (body only for coupon code verification)
         # analyze_text internally uses categorize_from_sender for privacy
         analysis = analyze_text(subject, sender, body)
@@ -934,8 +938,9 @@ def analyze_emails(emails: List[Dict], strict_mode: bool = False, enable_ocr: bo
                 missing_items.append("store name")
         
         # CONDITIONAL OCR: Extract from images to supplement or complete offer data
-        # MEMORY LIMIT: Only process OCR if really needed to conserve memory
-        if needs_ocr and enable_ocr and 'payload' in email:
+        # MEMORY LIMIT: Only process OCR for Coupon/GiftCard categories to conserve memory
+        is_valuable_category = email['category'] in ['Coupon', 'GiftCard']
+        if needs_ocr and enable_ocr and is_valuable_category and 'payload' in email:
             try:
                 print(f"   🔍 Missing data ({', '.join(missing_items)}), using OCR...")
                 image_result = get_email_images_with_ocr(email['payload'])

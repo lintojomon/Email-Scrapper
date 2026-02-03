@@ -185,6 +185,9 @@ def analyze():
     num_emails = request.form.get('num_emails', 50, type=int)
     days = request.form.get('days', None, type=int)
     strict_mode = request.form.get('strict_mode', 'false') == 'true'
+    enable_ocr = request.form.get('enable_ocr', 'true') == 'true'  # OCR enabled by default
+    
+    print(f"📧 Analysis requested: {num_emails} emails, OCR={'enabled' if enable_ocr else 'disabled'}")
     
     try:
         # Fetch emails
@@ -200,7 +203,7 @@ def analyze():
         
         # MEMORY OPTIMIZATION: Process emails in smaller batches
         # This prevents OOM errors on Render's 512MB instances
-        BATCH_SIZE = 5  # Process 5 emails at a time
+        BATCH_SIZE = 3  # Process 3 emails at a time (reduced for memory safety)
         all_results = {
             'membership': [],
             'offer': [],
@@ -218,8 +221,8 @@ def analyze():
             
             print(f"   Processing batch {batch_num}/{total_batches} ({len(batch)} emails)...")
             
-            # Analyze batch with OCR enabled
-            batch_results = analyze_emails(batch, strict_mode=strict_mode, enable_ocr=True)
+            # Analyze batch with user's OCR preference
+            batch_results = analyze_emails(batch, strict_mode=strict_mode, enable_ocr=enable_ocr)
             
             # Merge batch results into all_results
             for category, items in batch_results.items():
