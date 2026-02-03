@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analysis Results - Email Analyzer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 30px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .navbar-brand {
+            color: white;
+            font-size: 1.5rem;
+            font-weight: 700;
+            text-decoration: none;
+        }
+        
+        .navbar-user {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .user-email {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 0.9rem;
+        }
+        
+        .nav-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+        
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        /* Summary Cards */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .summary-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            transition: transform 0.3s ease;
+        }
+        
+        .summary-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .summary-card .icon {
+            font-size: 40px;
+            margin-bottom: 10px;
+        }
+        
+        .summary-card .count {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #333;
+        }
+        
+        .summary-card .label {
+            color: #666;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        
+        .summary-card.membership { border-top: 4px solid #3b82f6; }
+        .summary-card.offer { border-top: 4px solid #f59e0b; }
+        .summary-card.giftcard { border-top: 4px solid #ec4899; }
+        .summary-card.coupon { border-top: 4px solid #10b981; }
+        .summary-card.total { border-top: 4px solid #8b5cf6; }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .tab-btn {
+            padding: 12px 24px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        
+        .tab-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .tab-btn.active {
+            background: white;
+            color: #333;
+        }
+        
+        .tab-btn .badge {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.8rem;
+            margin-left: 8px;
+        }
+        
+        .tab-btn.active .badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        /* Results Section */
+        .results-section {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+        
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .section-title {
+            font-size: 1.3rem;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        /* Email Cards */
+        .email-list {
+            display: grid;
+            gap: 15px;
+        }
+        
+        .email-card {
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+            transition: all 0.3s ease;
+        }
+        
+        .email-card:hover {
+            background: #f1f5f9;
+            transform: translateX(5px);
+        }
+        
+        .email-card.membership { border-left-color: #3b82f6; }
+        .email-card.offer { border-left-color: #f59e0b; }
+        .email-card.giftcard { border-left-color: #ec4899; }
+        .email-card.coupon { border-left-color: #10b981; }
+        
+        .email-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+        
+        .email-subject {
+            font-weight: 600;
+            color: #1e293b;
+            font-size: 1rem;
+            flex: 1;
+        }
+        
+        .email-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+            margin-left: 15px;
+        }
+        
+        .email-badge.shopping {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
+        
+        .email-meta {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .email-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.85rem;
+            color: #64748b;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #64748b;
+        }
+        
+        .empty-state .icon {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+        
+        .empty-state h3 {
+            font-size: 1.2rem;
+            margin-bottom: 10px;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .summary-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .tabs {
+                justify-content: center;
+            }
+            
+            .email-header {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .email-badge {
+                margin-left: 0;
+                align-self: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <a href="{{ url_for('dashboard') }}" class="navbar-brand">📧 Email Analyzer</a>
+        <div class="navbar-user">
+            <span class="user-email">{{ user_email }}</span>
+            <a href="{{ url_for('dashboard') }}" class="nav-btn">New Analysis</a>
+            <a href="{{ url_for('logout') }}" class="nav-btn">Logout</a>
+        </div>
+    </nav>
+    
+    <div class="container">
+        <!-- Summary Cards -->
+        <div class="summary-grid">
+            <div class="summary-card membership">
+                <div class="icon">🔔</div>
+                <div class="count">{{ results.summary.membership }}</div>
+                <div class="label">Memberships</div>
+            </div>
+            <div class="summary-card offer">
+                <div class="icon">💳</div>
+                <div class="count">{{ results.summary.offer }}</div>
+                <div class="label">Card Offers</div>
+            </div>
+            <div class="summary-card coupon">
+                <div class="icon">🏷️</div>
+                <div class="count">{{ results.summary.coupon }}</div>
+                <div class="label">Coupons</div>
+            </div>
+            <div class="summary-card giftcard">
+                <div class="icon">🎁</div>
+                <div class="count">{{ results.summary.giftcard }}</div>
+                <div class="label">Gift Cards</div>
+            </div>
+        </div>
+        
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="membership">
+                🔔 Memberships <span class="badge">{{ results.summary.membership }}</span>
+            </button>
+            <button class="tab-btn" data-tab="offer">
+                💳 Card Offers <span class="badge">{{ results.summary.offer }}</span>
+            </button>
+            <button class="tab-btn" data-tab="coupon">
+                🏷️ Coupons <span class="badge">{{ results.summary.coupon }}</span>
+            </button>
+            <button class="tab-btn" data-tab="giftcard">
+                🎁 Gift Cards <span class="badge">{{ results.summary.giftcard }}</span>
+            </button>
+        </div>
+        
+        <!-- Results Section -->
+        <div class="results-section">
+            <!-- Membership Tab -->
+            <div class="tab-content active" id="tab-membership">
+                {% if results.membership %}
+                <div class="email-list">
+                    {% for name, details in results.membership.items() %}
+                    <div class="email-card membership">
+                        <div class="email-header">
+                            <div class="email-subject">{{ name }}</div>
+                            <span class="email-badge {% if details.is_shopping_domain %}shopping{% endif %}">
+                                {{ details.status }}
+                            </span>
+                        </div>
+                        <div class="email-meta">
+                            <span class="email-meta-item">👤 {{ details.from }}</span>
+                        </div>
+                        <div class="email-meta" style="margin-top: 8px;">
+                            <span class="email-meta-item">📅 Start: {{ details.start_date }}</span>
+                            <span class="email-meta-item">⏰ Expires: {{ details.expiry_date }}</span>
+                            {% if details.is_shopping_domain %}
+                            <span class="email-meta-item">🛒 Shopping Domain</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <div class="icon">🔔</div>
+                    <h3>No Membership Emails Found</h3>
+                    <p>Try analyzing more emails or a longer time period</p>
+                </div>
+                {% endif %}
+            </div>
+            
+            <!-- Offer Tab -->
+            <div class="tab-content" id="tab-offer">
+                {% if results.offer %}
+                <div class="email-list">
+                    {% for card_name, details in results.offer.items() %}
+                    <div class="email-card offer">
+                        <div class="email-header">
+                            <div class="email-subject">{{ card_name }}</div>
+                            <span class="email-badge {% if details.is_shopping_domain %}shopping{% endif %}">
+                                {{ details.status }}
+                            </span>
+                        </div>
+                        <div class="email-meta">
+                            <span class="email-meta-item">👤 {{ details.from }}</span>
+                            <span class="email-meta-item">📅 {{ details.date }}</span>
+                            {% if details.is_shopping_domain %}
+                            <span class="email-meta-item">🛒 Shopping Domain</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <div class="icon">💳</div>
+                    <h3>No Credit Card Offers Found</h3>
+                    <p>Try analyzing more emails or a longer time period</p>
+                </div>
+                {% endif %}
+            </div>
+            
+            <!-- Coupon Tab -->
+            <div class="tab-content" id="tab-coupon">
+                {% if results.coupon %}
+                <div class="email-list">
+                    {% for coupon in results.coupon %}
+                    <div class="email-card coupon">
+                        <div class="email-header">
+                            <div class="email-subject">🏪 {{ coupon.store_name }}</div>
+                        </div>
+                        <div class="email-meta">
+                            <div style="width: 100%; margin-bottom: 8px;">
+                                <strong>{{ coupon.subject }}</strong>
+                            </div>
+                            {% if coupon.promo_codes %}
+                            <span class="email-meta-item">📝 Promo: {{ coupon.promo_codes|join(', ') }}</span>
+                            {% endif %}
+                            {% if coupon.discounts %}
+                            <span class="email-meta-item">💰 Discount: {{ coupon.discounts|join(', ') }}</span>
+                            {% endif %}
+                            {% if coupon.discount_details %}
+                            <span class="email-meta-item">💸 {{ coupon.discount_details|join(', ') }}</span>
+                            {% endif %}
+                            {% if coupon.expiry_date %}
+                            <span class="email-meta-item">⏰ Expires: {{ coupon.expiry_date }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="email-meta" style="margin-top: 8px;">
+                            <span class="email-meta-item">👤 {{ coupon.from }}</span>
+                            <span class="email-meta-item">📅 {{ coupon.date }}</span>
+                            {% if coupon.is_shopping_domain %}
+                            <span class="email-meta-item">🛒 Shopping Domain</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <div class="icon">🏷️</div>
+                    <h3>No Coupons Found</h3>
+                    <p>Try analyzing more emails or a longer time period</p>
+                </div>
+                {% endif %}
+            </div>
+            
+            <!-- Gift Card Tab -->
+            <div class="tab-content" id="tab-giftcard">
+                {% if results.giftcard %}
+                <div class="email-list">
+                    {% for giftcard in results.giftcard %}
+                    <div class="email-card giftcard">
+                        <div class="email-header">
+                            <div class="email-subject">🎁 {{ giftcard.store_name }}</div>
+                        </div>
+                        <div class="email-meta">
+                            <div style="width: 100%; margin-bottom: 8px;">
+                                <strong>{{ giftcard.subject }}</strong>
+                            </div>
+                            {% if giftcard.card_number %}
+                            <span class="email-meta-item">💳 Card: {{ giftcard.card_number }}</span>
+                            {% endif %}
+                            {% if giftcard.pin %}
+                            <span class="email-meta-item">🔒 PIN: {{ giftcard.pin }}</span>
+                            {% endif %}
+                            {% if giftcard.value %}
+                            <span class="email-meta-item">💰 Value: {{ giftcard.value }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="email-meta" style="margin-top: 8px;">
+                            <span class="email-meta-item">👤 {{ giftcard.from }}</span>
+                            <span class="email-meta-item">📅 {{ giftcard.date }}</span>
+                            {% if giftcard.is_shopping_domain %}
+                            <span class="email-meta-item">🛒 Shopping Domain</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <div class="icon">🎁</div>
+                    <h3>No Gift Cards Found</h3>
+                    <p>Try analyzing more emails or a longer time period</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                // Remove active from all tabs
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                // Activate clicked tab
+                this.classList.add('active');
+                document.getElementById('tab-' + this.dataset.tab).classList.add('active');
+            });
+        });
+    </script>
+</body>
+</html>

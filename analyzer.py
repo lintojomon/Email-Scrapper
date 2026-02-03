@@ -19,12 +19,16 @@ import re
 from typing import List, Dict
 from auth import get_gmail_service, revoke_token
 from gmail_reader import fetch_emails, fetch_emails_by_days
-from patterns import analyze_text, categorize_email, is_shopping_domain, is_excluded_domain
+# Use generalized patterns that work for ANY store/card/membership
+from patterns_generalized import analyze_text, categorize_email, is_commercial_domain, categorize_from_sender
+from image_extractor import get_email_images_with_ocr
+from footer_extractor import get_enhanced_email_data, extract_store_name_from_footer
 
 
 def extract_credit_card_name(subject: str, body: str = "") -> str:
     """
     Extract credit card name from email subject or body.
+    PRIORITY: Extract from body first (more accurate full names), then subject.
     
     Args:
         subject: Email subject
@@ -33,43 +37,74 @@ def extract_credit_card_name(subject: str, body: str = "") -> str:
     Returns:
         Credit card name string
     """
+    # STEP 1: Try to extract from body first (most accurate)
+    if body:
+        # Pattern: "Welcome to <Full Card Name> Card" or "Congratulations on your <Card Name> approval"
+        body_patterns = [
+            r'Welcome to\s+([A-Z][A-Za-z0-9\s®]+?)\s+(?:Credit )?Card',
+            r'Congratulations on your\s+([A-Z][A-Za-z0-9\s®]+?)\s+approval',
+            r'Your\s+([A-Z][A-Za-z0-9\s®]+?)\s+(?:Credit )?Card\s+(?:is|has been)',
+            r'activate your\s+([A-Z][A-Za-z0-9\s®]+?)\s+(?:Credit )?Card',
+        ]
+        
+        for pattern in body_patterns:
+            match = re.search(pattern, body, re.IGNORECASE)
+            if match:
+                card_name = match.group(1).strip()
+                # Clean up
+                card_name = re.sub(r'\s+', ' ', card_name)
+                card_name = re.sub(r'\s*®\s*', '®', card_name)
+                # Filter out generic words
+                if len(card_name) > 5 and card_name.lower() not in ['your new', 'new us', 'us cardmember', 'the new']:
+                    return card_name
+    
+    # STEP 2: Try specific patterns for known card issuers in subject + body
     text = f"{subject} {body}"
     
-    # Known credit card patterns - specific card names
+    # Known credit card patterns - ordered by specificity (most specific first)
     card_patterns = [
         # American Express cards
-        r'(American Express[\s®]*(?:Blue Cash Everyday|Blue Cash Preferred|Gold|Platinum|Green|Delta SkyMiles|Hilton Honors|Marriott Bonvoy)?[\s®]*Card)',
-        r'(Amex[\s®]*(?:Blue Cash Everyday|Blue Cash Preferred|Gold|Platinum|Green)?[\s®]*Card)',
+        r'(American Express[\s®]*(?:Blue Cash Everyday|Blue Cash Preferred|Gold|Platinum|Green|Delta SkyMiles|Hilton Honors|Marriott Bonvoy)?)[\s®]*(?:Credit )?Card',
+        r'(Amex[\s®]*(?:Blue Cash Everyday|Blue Cash Preferred|Gold|Platinum|Green)?)[\s®]*(?:Credit )?Card',
         
         # Delta SkyMiles cards
-        r'(Delta SkyMiles[\s®]*(?:Gold|Platinum|Reserve|Blue)?[\s®]*(?:Business)?[\s®]*(?:American Express)?[\s®]*Card)',
+        r'(Delta SkyMiles[\s®]*(?:Gold|Platinum|Reserve|Blue)?[\s®]*(?:Business)?[\s®]*(?:American Express)?)[\s®]*(?:Credit )?Card',
         
-        # Chase cards
-        r'(Chase[\s®]*(?:Sapphire Preferred|Sapphire Reserve|Freedom|Freedom Unlimited|Freedom Flex|Ink Business)?[\s®]*Card)',
+        # Chase cards - order matters! More specific first
+        r'(Chase[\s®]*Sapphire Reserve)[\s®]*(?:Credit )?Card',
+        r'(Chase[\s®]*Sapphire Preferred)[\s®]*(?:Credit )?Card',
+        r'(Chase[\s®]*Freedom Unlimited)[\s®]*(?:Credit )?Card',
+        r'(Chase[\s®]*Freedom Flex)[\s®]*(?:Credit )?Card',
+        r'(Chase[\s®]*Freedom)[\s®]*(?:Credit )?Card',
+        r'(Chase[\s®]*Ink Business)[\s®]*(?:Credit )?Card',
         
-        # Capital One cards
-        r'(Capital One[\s®]*(?:Venture|Venture X|Quicksilver|SavorOne|Spark)?[\s®]*Card)',
+        # Capital One cards - order matters! More specific first
+        r'(Capital One[\s®]*Venture X Rewards?)[\s®]*(?:Credit )?Card',
+        r'(Capital One[\s®]*Venture Rewards?)[\s®]*(?:Credit )?Card',
+        r'(Capital One[\s®]*Venture)[\s®]*(?:Credit )?Card',
+        r'(Capital One[\s®]*Quicksilver)[\s®]*(?:Credit )?Card',
+        r'(Capital One[\s®]*SavorOne)[\s®]*(?:Credit )?Card',
+        r'(Capital One[\s®]*Spark)[\s®]*(?:Credit )?Card',
         
         # Citi cards
-        r'(Citi[\s®]*(?:Double Cash|Premier|Custom Cash|Diamond Preferred)?[\s®]*Card)',
+        r'(Citi[\s®]*(?:Double Cash|Premier|Custom Cash|Diamond Preferred)?)[\s®]*(?:Credit )?Card',
         
-        # Discover cards
-        r'(Discover[\s®]*(?:it|it Miles|it Chrome)?[\s®]*Card)',
+        # Discover cards - order matters!
+        r'(Discover[\s®]*it Miles)[\s®]*(?:Credit )?Card',
+        r'(Discover[\s®]*it Chrome)[\s®]*(?:Credit )?Card',
+        r'(Discover[\s®]*it)[\s®]*(?:Credit )?Card',
         
-        # Bank of America cards
-        r'(Bank of America[\s®]*(?:Cash Rewards|Travel Rewards|Premium Rewards|Customized Cash)?[\s®]*Card)',
+        # Bank of America cards - order matters!
+        r'(Bank of America[\s®]*Premium Rewards)[\s®]*(?:Credit )?Card',
+        r'(Bank of America[\s®]*Cash Rewards)[\s®]*(?:Credit )?Card',
+        r'(Bank of America[\s®]*Travel Rewards)[\s®]*(?:Credit )?Card',
+        r'(Bank of America[\s®]*Customized Cash)[\s®]*(?:Credit )?Card',
         
         # Wells Fargo cards
-        r'(Wells Fargo[\s®]*(?:Active Cash|Reflect|Autograph)?[\s®]*Card)',
+        r'(Wells Fargo[\s®]*(?:Active Cash|Autograph|Reflect)?)[\s®]*(?:Credit )?Card',
         
         # Generic card patterns
-        r'((?:Visa|Mastercard|Discover)[\s®]*(?:Signature|Platinum|Gold|Rewards)?[\s®]*Card)',
-        
-        # Pattern for "Your <Card Name> Card Benefits"
-        r'Your\s+([A-Za-z\s®]+(?:Card))\s+Benefits',
-        
-        # Pattern for "<Card Name> Card" at the beginning
-        r'^.*?([A-Z][A-Za-z\s®]+(?:Card))',
+        r'((?:Visa|Mastercard|Discover)[\s®]*(?:Signature|Platinum|Gold|Rewards)?)[\s®]*(?:Credit )?Card',
     ]
     
     for pattern in card_patterns:
@@ -77,9 +112,10 @@ def extract_credit_card_name(subject: str, body: str = "") -> str:
         if match:
             card_name = match.group(1).strip()
             # Clean up the card name
-            card_name = re.sub(r'\s+', ' ', card_name)  # Remove extra spaces
-            card_name = card_name.replace('®', '').strip()  # Remove ® symbol
-            if len(card_name) > 5 and 'card' in card_name.lower():
+            card_name = re.sub(r'\s+', ' ', card_name)
+            # Keep ® symbol but remove extra spaces around it
+            card_name = re.sub(r'\s*®\s*', '®', card_name)
+            if len(card_name) > 5:
                 return card_name
     
     # Try to extract from subject directly
@@ -248,19 +284,96 @@ def extract_credit_card_name(subject: str, body: str = "") -> str:
 def extract_membership_name(subject: str, body: str = "") -> str:
     """
     Extract membership/subscription name from email subject or body.
+    GENERALIZED APPROACH: Dynamically extracts store name + program name from email body.
+    Falls back to hardcoded mappings only if dynamic extraction fails.
     
     Args:
         subject: Email subject
         body: Email body for additional context
     
     Returns:
-        Membership name string (e.g., "Walmart+", "Amazon Prime")
+        Membership name string (e.g., "Walmart+", "Amazon Prime", "Sephora Beauty Insider")
     """
     text = f"{subject} {body}"
     # Normalize apostrophes (replace curly/smart quotes with straight quotes)
     text_lower = text.lower().replace('\u2019', "'").replace('\u2018', "'")
     
-    # Check known memberships FIRST (more specific to less specific)
+    # === STEP 1: DYNAMIC EXTRACTION FROM BODY ===
+    # Try to extract membership name from email body using generalized patterns
+    # This handles cases like "Your Sephora Beauty Insider membership" dynamically
+    
+    if body:
+        # Pattern 1: "Your <StoreName> <ProgramName> membership/rewards/program"
+        # Example: "Your Sephora Beauty Insider membership" → "Sephora Beauty Insider"
+        # More specific patterns to avoid false matches
+        body_patterns = [
+            # "Your Sam's Club Plus Membership is now active" - looks for full proper name before "Membership"
+            r'(?:your|the)\s+([A-Z][A-Za-z0-9\s\'\+®\.&-]{3,50}?)\s+(?:Membership|membership)\s+is\s+(?:now\s+)?active',
+            
+            # "Your Sephora Beauty Insider membership" - requires capital letter start
+            r'Your\s+([A-Z][A-Za-z][A-Za-z0-9\s\'\+®\.&-]{3,50}?)\s+(?:membership|rewards?|program)\s+(?:is|keeps|unlocks|provides)',
+            
+            # "Program: Bank of America Preferred Rewards®" - from structured sections
+            r'Program:\s+([A-Z][A-Za-z0-9\s\'\+®\.&-]{3,50}?)(?:\s*\n|\s*Tier:)',
+            
+            # "Membership Plan: Sam's Club Plus Membership" - from membership details section
+            r'Membership Plan:\s+([A-Z][A-Za-z0-9\s\'\+®\.&-]{3,50}?)\s+(?:\(|$)',
+            
+            # "enrolled in Bank of America Preferred Rewards®"
+            r'enrolled in\s+([A-Z][A-Za-z0-9\s\'\+®\.&-]{3,50}?)(?:\s*\.\s*|\s*$)',
+            
+            # "joining Sam's Club" - extract store name from joining context
+            r'Thank you for joining\s+([A-Z][A-Za-z0-9\s\'\+®\.&-]{3,50}?)(?:\s*\.\s*|\s*$)',
+        ]
+        
+        for pattern in body_patterns:
+            match = re.search(pattern, body, re.IGNORECASE)
+            if match:
+                membership_name = match.group(1).strip()
+                # Clean up extra spaces and special characters
+                membership_name = re.sub(r'\s+', ' ', membership_name)
+                membership_name = membership_name.strip('.,;:')
+                
+                # Filter out generic/invalid names
+                invalid_names = ['membership', 'membership details', 'your membership', 
+                                'active membership', 'tier', 'gold tier', 'platinum tier',
+                                'exclusive to us', 'us members', 'us shoppers']
+                if membership_name.lower() in invalid_names:
+                    continue
+                
+                # Must be at least 2 words or have special characters like + or '
+                words = membership_name.split()
+                if len(words) >= 2 or '+' in membership_name or "'" in membership_name:
+                    # Clean up the name
+                    membership_name = membership_name.replace('®', '').strip()
+                    
+                    # Check if this extracted name has a better mapping in known_memberships
+                    # e.g., "Ultamate Rewards" → "Ulta Beauty Ultamate Rewards"
+                    text_lower_check = (subject + " " + body).lower().replace('\u2019', "'").replace('\u2018', "'")
+                    
+                    # Quick check for hardcoded mappings of the extracted name
+                    membership_lower = membership_name.lower()
+                    known_membership_keys = {
+                        'ultamate rewards': 'Ulta Beauty Ultamate Rewards',
+                        'ulta ultamate rewards': 'Ulta Beauty Ultamate Rewards',
+                        'ulta rewards': 'Ulta Beauty Ultamate Rewards',
+                        'sephora beauty insider': 'Sephora Beauty Insider',
+                        'beauty insider': 'Sephora Beauty Insider',
+                        'kroger boost+': 'Kroger Boost+',
+                        'kroger boost plus': 'Kroger Boost+',
+                        "bj's club+": "BJ's Club+",
+                        "bjs club+": "BJ's Club+",
+                    }
+                    
+                    if membership_lower in known_membership_keys:
+                        return known_membership_keys[membership_lower]
+                    
+                    return membership_name
+    
+    # === STEP 2: CHECK HARDCODED MAPPINGS ===
+    # Check hardcoded mappings BEFORE subject patterns for known programs
+    # This ensures "Ultamate Rewards" → "Ulta Beauty Ultamate Rewards"
+    
     known_memberships = {
         # === BANK / FINANCIAL MEMBERSHIPS ===
         'bank of america preferred rewards platinum': 'Bank of America Preferred Rewards Platinum',
@@ -287,9 +400,12 @@ def extract_membership_name(subject: str, body: str = "") -> str:
         'sams club': "Sam's Club Membership",
         "bj's inner circle": "BJ's Inner Circle Membership",
         "bj's perks rewards": "BJ's Perks Rewards",
-        "bj's wholesale": "BJ's Wholesale Membership",
-        'bjs wholesale': "BJ's Wholesale Membership",
-        "bj's": "BJ's Wholesale Membership",
+        "bj's club+": "BJ's Club+",
+        "bj's club plus": "BJ's Club+",
+        "bjs club+": "BJ's Club+",
+        "bj's wholesale": "BJ's Club+",
+        'bjs wholesale': "BJ's Club+",
+        "bj's": "BJ's Club+",
         
         # === RETAIL MEMBERSHIPS ===
         'walmart+': 'Walmart+',
@@ -307,7 +423,10 @@ def extract_membership_name(subject: str, body: str = "") -> str:
         'petsmart treats': 'PetSmart Treats Rewards',
         'chewy autoship': 'Chewy Autoship',
         'sephora beauty insider': 'Sephora Beauty Insider',
-        'ulta ultamate rewards': 'Ulta Ultamate Rewards',
+        'ultamate rewards': 'Ulta Beauty Ultamate Rewards',
+        'ulta ultamate rewards': 'Ulta Beauty Ultamate Rewards',
+        'ulta rewards': 'Ulta Beauty Ultamate Rewards',
+        'ulta beauty': 'Ulta Beauty Ultamate Rewards',
         'nordstrom nordy club': 'Nordstrom Nordy Club',
         "kohl's rewards": "Kohl's Rewards",
         "macy's star rewards": "Macy's Star Rewards",
@@ -316,8 +435,13 @@ def extract_membership_name(subject: str, body: str = "") -> str:
         'nike membership': 'Nike Membership',
         'adidas creators club': 'Adidas Creators Club',
         'lululemon membership': 'Lululemon Membership',
+        'j.crew passport': 'J.Crew Passport',
+        'jcrew passport': 'J.Crew Passport',
         
         # === FOOD / GROCERY MEMBERSHIPS ===
+        'kroger boost+': 'Kroger Boost+',
+        'kroger boost plus': 'Kroger Boost+',
+        'kroger boost': 'Kroger Boost+',
         'instacart+': 'Instacart+',
         'instacart express': 'Instacart Express',
         'shipt': 'Shipt Membership',
@@ -449,30 +573,28 @@ def extract_membership_name(subject: str, body: str = "") -> str:
         'sirius xm': 'SiriusXM',
     }
     
-    # Check more specific patterns first (longer keys first)
+    # Check hardcoded mappings (longer keys first for specificity)
     for key in sorted(known_memberships.keys(), key=len, reverse=True):
         if key in text_lower:
             return known_memberships[key]
     
-    # Fallback to regex patterns for less common memberships
-    membership_patterns = [
-        # Pattern for "Welcome to <Membership>"  (stops at dash, exclamation, or "Your")
-        r'Welcome to\s+([A-Za-z0-9\+]+)(?:\s*[–—!\-]|\s+Your)',
-        
-        # Pattern for "Your <Membership> Membership"
-        r'Your\s+([A-Za-z0-9\+\s]+?)\s+(?:Membership|subscription)',
-    ]
+    # === STEP 3: SUBJECT LINE PATTERNS ===
+    # Extract from subject if body extraction and hardcoded mappings failed
+    # Pattern: "Beauty Insider:" → extract "Beauty Insider"
+    subject_tier_pattern = r'\b([\w\s\'\+]+)\s+(club\+|boost\+|plus|premium|pro|rewards?|insider|member|circle|perks?):\s'
+    subject_match = re.search(subject_tier_pattern, subject, re.IGNORECASE)
+    if subject_match:
+        store_part = subject_match.group(1).strip()
+        program_part = subject_match.group(2).strip()
+        membership_name = f"{store_part.title()} {program_part.capitalize()}"
+        # Fix common capitalizations
+        membership_name = membership_name.replace("Club+", "Club+").replace("Boost+", "Boost+")
+        return membership_name
     
-    for pattern in membership_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            membership = match.group(1).strip()
-            # Clean up
-            membership = re.sub(r'\s+', ' ', membership)
-            if len(membership) > 2:
-                return membership
-    
+    # === STEP 4: FINAL FALLBACK ===
+    # If nothing else works, return generic "Membership"
     return "Membership"
+
 
 
 def extract_company_name(sender: str, subject: str = "", body: str = "") -> str:
@@ -488,6 +610,11 @@ def extract_company_name(sender: str, subject: str = "", body: str = "") -> str:
     Returns:
         Company name string
     """
+    # EXCEPTION: Skip extraction for testing emails from @innovinlabs.com
+    # These are forwarded emails, so prioritize image/footer extraction instead
+    if '@innovinlabs.com' in sender.lower():
+        return "Unknown Store"
+    
     # Known brand mappings
     brand_map = {
         'amazon': 'Amazon',
@@ -555,6 +682,7 @@ def extract_company_name(sender: str, subject: str = "", body: str = "") -> str:
     # First, try to extract from email signature patterns in body
     if body:
         # Common signature patterns:
+        # "Happy shopping,\nFreshMart Foods Team"
         # "Warm regards,\nCompany Name"
         # "Best regards,\nThe Amazon Team"
         # "Customer Support Team\nWalmart"
@@ -562,35 +690,41 @@ def extract_company_name(sender: str, subject: str = "", body: str = "") -> str:
         # "Cheers,\nNike"
         
         signature_patterns = [
-            # Pattern: "Customer Support Team <Company>" (same line or next line)
-            r'(?:customer\s+)?(?:support|service|care)\s+team\s+([A-Z][A-Za-z0-9\s&\'\.]+?)(?:\s*$|\s*\n)',
+            # === GENERAL PATTERNS (Highest Priority) ===
+            # Pattern: "<Any phrase>, <Company> Team" (same line)
+            # Matches: "Happy shopping, FreshMart Team", "Stay fit, Nike Team", "Keep saving, Walmart Team", etc.
+            r'[A-Za-z\s]+[!,]\s*(?:the\s+)?([A-Z][A-Za-z0-9\s&\'.]+?)\s+team\s',
+            
+            # Pattern: "<Any phrase>,\n<Company> Team" or "<Any phrase>,\n<Company>"
+            # Matches multi-line signatures with any closing phrase
+            r'[A-Za-z\s]+[!,]\s*\n+\s*(?:the\s+)?([A-Z][A-Za-z0-9\s&\'.]+?)(?:\s+team)?\s*(?:\n|$)',
             
             # Pattern: "Customer Support Team\n<Company>"
-            r'(?:customer\s+)?(?:support|service|care)\s+team\s*\n+\s*([A-Z][A-Za-z0-9\s&\'\.]+?)\s*(?:\n|$)',
+            r'(?:customer\s+)?(?:support|service|care)\s+team\s*\n+\s*([A-Z][A-Za-z0-9\s\&\'.]+?)\s*(?:\n|$)',
             
-            # Pattern: "regards,\n<Company>" or "regards,\n<Company> Team"
-            r'(?:warm\s*)?regards,?\s*\n+\s*(?:the\s+)?([A-Z][A-Za-z0-9\s&\'\.]+?)(?:\s+team)?\s*(?:\n|$)',
+            # Pattern: "Customer Support Team <Company>" (same line)
+            r'(?:customer\s+)?(?:support|service|care)\s+team[,\s]+([A-Z][A-Za-z0-9\s\&\'.]+?)(?:\s*$|\s*\n)',
+            
+            # Pattern: "Warm regards,\n<Company>" or "Warm regards,\n<Company> Team"
+            r'(?:warm\s+)?regards[!,]*\s*\n+\s*(?:the\s+)?([A-Z][A-Za-z0-9\s\&\'.]+?)(?:\s+team)?\s*(?:\n|$)',
             
             # Pattern: "regards, <Company>" (same line)
-            r'(?:warm\s*)?regards,?\s+([A-Z][A-Za-z0-9\s&\'\.]+?)(?:\s+team)?\s*(?:\n|$)',
+            r'(?:warm\s+)?regards[!,]*\s+([A-Z][A-Za-z0-9\s\&\'.]+?)(?:\s+team)?\s*(?:\n|$)',
             
-            # Pattern: "thanks,\n<Company>"
-            r'thanks,?\s*\n+\s*(?:the\s+)?([A-Z][A-Za-z0-9\s&\'\.]+?)(?:\s+team)?\s*(?:\n|$)',
+            # Pattern: "Thanks,\n<Company> Team"
+            r'thanks[!,]*\s*\n+\s*(?:the\s+)?([A-Z][A-Za-z0-9\s\&\'.]+?)(?:\s+team)?\s*(?:\n|$)',
             
-            # Pattern: "cheers,\n<Company>"
-            r'cheers,?\s*\n+\s*(?:the\s+)?([A-Z][A-Za-z0-9\s&\'\.]+?)(?:\s+team)?\s*(?:\n|$)',
-            
-            # Pattern: "The <Company> Team"
-            r'(?:the\s+)?([A-Z][A-Za-z0-9\s&\'\.]+?)\s+team\s*(?:\n|$)',
-            
-            # Pattern: "Happy shopping!\n...\n<Company>"
-            r'happy\s+shopping[!]?\s*[😊🎉]*\s*\n+.*?\n+\s*([A-Z][A-Za-z0-9\s&\'\.]+?)\s*(?:\n|$)',
+            # Pattern: "Cheers,\n<Company>"
+            r'cheers[!,]*\s*\n+\s*(?:the\s+)?([A-Z][A-Za-z0-9\s\&\'.]+?)(?:\s+team)?\s*(?:\n|$)',
             
             # Pattern: "Best,\n<Company>"
-            r'best,?\s*\n+\s*([A-Z][A-Za-z0-9\s&\'\.]+?)\s*(?:\n|$)',
+            r'best[!,]*\s*\n+\s*(?:the\s+)?([A-Z][A-Za-z0-9\s\&\'.]+?)(?:\s+team)?\s*(?:\n|$)',
             
             # Pattern: "Sincerely,\n<Company>"
-            r'sincerely,?\s*\n+\s*(?:the\s+)?([A-Z][A-Za-z0-9\s&\'\.]+?)(?:\s+team)?\s*(?:\n|$)',
+            r'sincerely[!,]*\s*\n+\s*(?:the\s+)?([A-Z][A-Za-z0-9\s\&\'.]+?)(?:\s+team)?\s*(?:\n|$)',
+            
+            # Pattern: "The <Company> Team" (standalone)
+            r'\bthe\s+([A-Z][A-Za-z0-9\s&\'.]+?)\s+team\b',
         ]
         
         for pattern in signature_patterns:
@@ -600,14 +734,15 @@ def extract_company_name(sender: str, subject: str = "", body: str = "") -> str:
                 # Clean up the extracted name
                 company = re.sub(r'\s+', ' ', company)  # Remove extra spaces
                 # Skip if it looks like generic text
-                skip_words = ['customer', 'support', 'service', 'team', 'regards', 'thanks', 'best', 'the']
-                if company.lower() not in skip_words and len(company) > 2 and len(company) < 30:
-                    # Check if it matches a known brand
-                    for key, brand in brand_map.items():
-                        if key in company.lower():
-                            return brand
-                    # Return the extracted company name if it looks valid
+                skip_words = ['customer', 'support', 'service', 'team', 'regards', 'thanks', 'best', 'the', 'shopping']
+                if company.lower() not in skip_words and len(company) > 2 and len(company) < 50:
+                    # Return the extracted company name if it looks valid (starts with capital letter)
                     if company[0].isupper():
+                        # Check if it matches a known brand for normalization
+                        for key, brand in brand_map.items():
+                            if key in company.lower():
+                                return brand
+                        # Return the extracted company name as-is (prioritize signature over body content)
                         return company
     
     # Combine all text for searching known brands
@@ -622,8 +757,15 @@ def extract_company_name(sender: str, subject: str = "", body: str = "") -> str:
     if '<' in sender:
         name_part = sender.split('<')[0].strip()
         if name_part and name_part.lower() not in ['noreply', 'no-reply', 'info', 'deals', 'offers', 'team', 'support']:
-            # Check if it looks like a company name (not a personal name with space)
-            if ' ' not in name_part or len(name_part) < 20:
+            # Skip if it looks like a personal name (First Last format)
+            # Personal names typically have exactly 2 or 3 parts
+            name_parts = name_part.split()
+            if len(name_parts) >= 2 and len(name_parts) <= 3:
+                # Likely a personal name like "Linto Jomon" or "John Q. Smith"
+                # Skip this and try domain extraction instead
+                pass
+            elif ' ' not in name_part or len(name_part) < 20:
+                # Single word name or short compound - likely a company
                 return name_part
     
     # Try to extract from email domain
@@ -638,13 +780,83 @@ def extract_company_name(sender: str, subject: str = "", body: str = "") -> str:
     return "Store/Website"
 
 
-def analyze_emails(emails: List[Dict], strict_mode: bool = False) -> Dict[str, List[Dict]]:
+def extract_giftcard_details(subject: str, body: str = "") -> Dict:
+    """
+    Extract gift card details from email subject and body.
+    
+    Args:
+        subject: Email subject
+        body: Email body
+    
+    Returns:
+        Dictionary with card_number, pin, value, and store_name
+    """
+    text = f"{subject} {body}"
+    
+    details = {
+        'card_number': None,
+        'pin': None,
+        'value': None,
+        'store_name': None,
+        'redemption_url': None
+    }
+    
+    # Extract card number (various formats)
+    card_patterns = [
+        r'(?:Card|Gift\s*Card)\s*(?:Number|#|No\.?)?\s*:?\s*([0-9]{4}[\s-]?[0-9]{4}[\s-]?[0-9]{4}[\s-]?[0-9]{4})',  # 16 digits
+        r'(?:Card|Gift\s*Card)\s*(?:Number|#|No\.?)?\s*:?\s*([0-9]{10,19})',  # 10-19 digits
+        r'Card\s*Code\s*:?\s*([A-Z0-9]{10,20})',  # Alphanumeric code
+    ]
+    
+    for pattern in card_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            details['card_number'] = match.group(1).strip()
+            break
+    
+    # Extract PIN
+    pin_patterns = [
+        r'PIN\s*:?\s*(\d{4,8})',
+        r'Security\s*Code\s*:?\s*(\d{3,4})',
+        r'Access\s*Code\s*:?\s*(\d{4,8})',
+    ]
+    
+    for pattern in pin_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            details['pin'] = match.group(1).strip()
+            break
+    
+    # Extract card value
+    value_patterns = [
+        r'(?:Card\s*)?(?:Value|Amount|Balance)\s*:?\s*\$?([0-9,]+(?:\.[0-9]{2})?)',
+        r'\$([0-9,]+(?:\.[0-9]{2})?)\s*(?:Gift\s*Card|Card)',
+        r'(?:Worth|Valued\s*at)\s*\$?([0-9,]+(?:\.[0-9]{2})?)',
+    ]
+    
+    for pattern in value_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            details['value'] = '$' + match.group(1).strip()
+            break
+    
+    # Extract redemption URL
+    url_pattern = r'(?:Redeem\s*(?:at|here)|Visit)\s*:?\s*(https?://[^\s<>\"]+)'
+    match = re.search(url_pattern, text, re.IGNORECASE)
+    if match:
+        details['redemption_url'] = match.group(1).strip()
+    
+    return details
+
+
+def analyze_emails(emails: List[Dict], strict_mode: bool = False, enable_ocr: bool = False) -> Dict[str, List[Dict]]:
     """
     Analyze a list of emails and categorize them.
     
     Categories:
     - membership: Service subscriptions (Amazon Prime, Netflix, Costco, etc.)
     - offer: Credit card benefits/rewards (Amex, Delta SkyMiles, etc.)
+    - giftcard: Gift cards and store credits
     - coupon: Discounts, promo codes, sales
     - excluded: Social media, forums, newsletters
     - normal: Other emails
@@ -652,6 +864,7 @@ def analyze_emails(emails: List[Dict], strict_mode: bool = False) -> Dict[str, L
     Args:
         emails: List of email dictionaries from gmail_reader
         strict_mode: If True, only include emails from known shopping domains
+        enable_ocr: If True, extract and analyze images with OCR
     
     Returns:
         Dictionary with categorized emails
@@ -659,29 +872,99 @@ def analyze_emails(emails: List[Dict], strict_mode: bool = False) -> Dict[str, L
     results = {
         'membership': [],
         'offer': [],
+        'giftcard': [],
         'coupon': [],
         'excluded': [],
         'normal': []
     }
     
     for email in emails:
-        # Combine subject and body for analysis
-        full_text = f"{email['subject']} {email['body']}"
+        # PRIVACY-FOCUSED: Only use subject line + sender domain
+        # Body is only read when needed to verify coupon codes (not for content analysis)
         sender = email.get('sender', '')
+        subject = email['subject']
+        body = email.get('body', '')
         
-        # Analyze the text with sender info
-        analysis = analyze_text(full_text, sender)
+        # PRIVACY-FOCUSED: Analyze subject + sender + body (body only for coupon code verification)
+        # analyze_text internally uses categorize_from_sender for privacy
+        analysis = analyze_text(subject, sender, body)
         
         # Add analysis results to email dict
         email['category'] = analysis['category']
         email['membership_matches'] = analysis['membership_matches']
         email['offer_matches'] = analysis['offer_matches']
         email['coupon_matches'] = analysis.get('coupon_matches', [])
+        email['giftcard_matches'] = analysis.get('giftcard_matches', [])
         email['is_shopping_domain'] = analysis['is_shopping_domain']
+        
+        # Extract gift card details if category is GiftCard
+        if analysis['category'] == 'GiftCard':
+            email['giftcard_details'] = extract_giftcard_details(subject, body)
+        
+        # ENHANCED: Extract promotional content from email footer/body/subject
+        footer_data = get_enhanced_email_data(body, sender, subject)
+        email['footer_offers'] = footer_data['offers']
+        email['footer_store_name'] = footer_data['store_name']
+        
+        # SMART OCR: Use OCR as fallback when subject/footer data is incomplete
+        # Priority flow: 1) Subject/Footer -> 2) OCR (if data incomplete) -> 3) Store name from domain
+        needs_ocr = False
+        
+        # Check if we have complete offer data from footer
+        footer_offers = footer_data['offers']
+        has_discount = bool(footer_offers.get('discount_details') or footer_offers.get('discounts'))
+        has_promo = bool(footer_offers.get('promo_codes'))
+        has_expiry = bool(footer_offers.get('expiry_date'))
+        has_store = bool(footer_data.get('store_name'))
+        
+        # Check if we need OCR to supplement missing data
+        # Use OCR if we're missing critical offer information OR store name
+        if not has_discount or not has_promo or not has_expiry or not has_store:
+            needs_ocr = True
+            missing_items = []
+            if not has_discount:
+                missing_items.append("discount")
+            if not has_promo:
+                missing_items.append("promo code")
+            if not has_expiry:
+                missing_items.append("expiry date")
+            if not has_store:
+                missing_items.append("store name")
+        
+        # CONDITIONAL OCR: Extract from images to supplement or complete offer data
+        if needs_ocr and enable_ocr and 'payload' in email:
+            try:
+                print(f"   🔍 Missing data ({', '.join(missing_items)}), using OCR...")
+                image_result = get_email_images_with_ocr(email['payload'])
+                image_offers = image_result.get('offers', [])
+                image_stores = image_result.get('store_names', [])
+                
+                # Store image analysis results
+                email['image_offers'] = image_offers
+                email['image_stores'] = image_stores
+                
+                # Re-categorize based on image content if category was Normal
+                if image_offers and email['category'] == 'Normal':
+                    # Check if images contain discounts/promo codes -> Coupon
+                    has_discount = any(o.get('discount') or o.get('promo_code') for o in image_offers)
+                    has_coupon_keywords = any(any(k in ['sale', 'clearance', 'limited time', 'free shipping'] 
+                                                      for k in o.get('keywords', [])) for o in image_offers)
+                    
+                    if has_discount or has_coupon_keywords:
+                        email['category'] = 'Coupon'
+                        email['coupon_matches'] = ['[IMAGE] Promotional offer detected']
+            except Exception as e:
+                # Don't fail the entire analysis if image processing fails
+                print(f"   ⚠ Image extraction failed for email: {e}")
+                email['image_offers'] = []
+                email['image_stores'] = []
+        else:
+            email['image_offers'] = []
+            email['image_stores'] = []
         
         # In strict mode, only include shopping domain emails
         if strict_mode and not analysis['is_shopping_domain']:
-            if analysis['category'] in ['Membership', 'Offer', 'Coupon']:
+            if analysis['category'] in ['Membership', 'Offer', 'GiftCard', 'Coupon']:
                 # Demote to normal if not from shopping domain
                 email['category'] = 'Normal'
                 results['normal'].append(email)
@@ -714,6 +997,7 @@ def print_results(results: Dict[str, List[Dict]], verbose: bool = False):
     print(f"\n📧 Total emails analyzed: {total}")
     print(f"   • Membership (Prime, Netflix, Costco): {len(results['membership'])}")
     print(f"   • Offer (Credit Cards, Rewards): {len(results['offer'])}")
+    print(f"   • Gift Cards: {len(results.get('giftcard', []))}")
     print(f"   • Coupon (Discounts, Promo Codes): {len(results['coupon'])}")
     print(f"   • Normal: {len(results['normal'])}")
     if excluded_count > 0:
@@ -751,6 +1035,39 @@ def print_results(results: Dict[str, List[Dict]], verbose: bool = False):
             if verbose and email['offer_matches']:
                 print(f"     Keywords: {', '.join(str(m) for m in email['offer_matches'][:5])}")
     
+    # Gift Card emails
+    if results.get('giftcard'):
+        print("\n" + "-" * 60)
+        print("🎁 GIFT CARDS:")
+        print("   Digital gift cards, store credits, etc.")
+        print("-" * 60)
+        for i, email in enumerate(results['giftcard'], 1):
+            shopping_badge = "🛒" if email.get('is_shopping_domain') else ""
+            
+            # Get store name
+            footer_store = email.get('footer_store_name')
+            if footer_store:
+                store_name = footer_store
+            else:
+                store_name = extract_company_name(email['sender'], email['subject'], email.get('body', ''))
+            
+            # Get gift card details
+            giftcard_details = email.get('giftcard_details', {})
+            
+            print(f"\n  {i}. {shopping_badge} {email['subject']}")
+            print(f"     🏪 Store: {store_name}")
+            print(f"     From: {email['sender']}")
+            print(f"     Date: {email['date']}")
+            
+            if giftcard_details.get('card_number'):
+                print(f"     💳 Card Number: {giftcard_details['card_number']}")
+            if giftcard_details.get('pin'):
+                print(f"     🔒 PIN: {giftcard_details['pin']}")
+            if giftcard_details.get('value'):
+                print(f"     💰 Value: {giftcard_details['value']}")
+            if giftcard_details.get('redemption_url'):
+                print(f"     🔗 Redeem: {giftcard_details['redemption_url']}")
+    
     # Coupon emails (Discounts, promo codes)
     if results['coupon']:
         print("\n" + "-" * 60)
@@ -759,11 +1076,63 @@ def print_results(results: Dict[str, List[Dict]], verbose: bool = False):
         print("-" * 60)
         for i, email in enumerate(results['coupon'], 1):
             shopping_badge = "🛒" if email.get('is_shopping_domain') else ""
-            store_name = extract_company_name(email['sender'], email['subject'], email.get('body', ''))
+            
+            # Priority for store name: Images > Footer > Email extraction
+            image_stores = email.get('image_stores', [])
+            footer_store = email.get('footer_store_name')
+            
+            if image_stores:
+                store_name = image_stores[0]
+            elif footer_store:
+                store_name = footer_store
+            else:
+                store_name = extract_company_name(email['sender'], email['subject'], email.get('body', ''))
+            
             print(f"\n  {i}. {shopping_badge} {email['subject']}")
-            print(f"     🏪 Applicable at: {store_name}")
+            print(f"     🏪 Store: {store_name}")
             print(f"     From: {email['sender']}")
             print(f"     Date: {email['date']}")
+            
+            # Show footer-extracted offers
+            footer_offers = email.get('footer_offers', {})
+            if footer_offers:
+                # Show detailed discount descriptions first (e.g., "$15 OFF YOUR ORDER OVER $75")
+                if footer_offers.get('discount_details'):
+                    print(f"     💰 Offer: {', '.join(footer_offers['discount_details'])}")
+                elif footer_offers.get('discounts'):
+                    print(f"     💰 Discounts: {', '.join(footer_offers['discounts'])}")
+                
+                if footer_offers.get('promo_codes'):
+                    print(f"     📝 Promo Codes: {', '.join(footer_offers['promo_codes'])}")
+                if footer_offers.get('free_shipping'):
+                    print(f"     📦 Free Shipping Available")
+                if footer_offers.get('expiry_date'):
+                    print(f"     ⏰ Expires: {footer_offers['expiry_date']}")
+            
+            # Show image-extracted offers
+            image_offers = email.get('image_offers', [])
+            if image_offers and verbose:
+                print(f"     🖼️  Image Offers ({len(image_offers)}):")
+                for offer in image_offers[:3]:  # Show max 3
+                    details = []
+                    if offer.get('discount'):
+                        details.append(f"Discount: {offer['discount']}")
+                    if offer.get('promo_code'):
+                        details.append(f"Code: {offer['promo_code']}")
+                    if offer.get('expiry_date'):
+                        details.append(f"Expires: {offer['expiry_date']}")
+                    if offer.get('keywords'):
+                        details.append(f"Keywords: {', '.join(offer['keywords'])}")
+                    
+                    # Show details or raw text snippet
+                    if details:
+                        for detail in details:
+                            print(f"        • {detail}")
+                    else:
+                        raw_text = offer.get('raw_text', '')[:60]
+                        if raw_text:
+                            print(f"        • {raw_text}...")
+            
             if verbose and email.get('coupon_matches'):
                 print(f"     Keywords: {', '.join(str(m) for m in email['coupon_matches'][:5])}")
     
@@ -854,6 +1223,8 @@ Examples:
                         help='Export results to CSV file')
     parser.add_argument('--json', action='store_true',
                         help='Export results to JSON file with HTML viewer')
+    parser.add_argument('--no-ocr', action='store_true',
+                        help='Disable OCR (OCR is enabled by default and runs only when needed)')
     parser.add_argument('--revoke', action='store_true',
                         help='Revoke OAuth token and exit')
     parser.add_argument('--stats', action='store_true',
@@ -893,7 +1264,15 @@ Examples:
         print(f"\n🔍 Step 3: Analyzing {len(emails)} emails...")
         if args.strict:
             print("   (Strict mode: Only showing shopping domain emails)")
-        results = analyze_emails(emails, strict_mode=args.strict)
+        
+        # OCR is enabled by default, disabled only with --no-ocr flag
+        enable_ocr = not args.no_ocr
+        if enable_ocr:
+            print("   (Smart OCR: Will extract from images only when domain/footer extraction fails)")
+        else:
+            print("   (OCR disabled)")
+            
+        results = analyze_emails(emails, strict_mode=args.strict, enable_ocr=enable_ocr)
         
         # Step 4: Display results
         print_results(results, verbose=args.verbose)

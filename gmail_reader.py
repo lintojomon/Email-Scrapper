@@ -16,6 +16,71 @@ This module handles:
 import base64
 from bs4 import BeautifulSoup
 from typing import Optional, List, Dict
+import re
+
+
+def is_personal_or_excluded_email(sender: str) -> bool:
+    """
+    Check if email sender is from a personal email domain or should be excluded.
+    
+    Security feature: Filters out personal email domains (gmail.com, yahoo.com, etc.)
+    and no-reply/automated emails to only process emails from stores/businesses.
+    
+    Args:
+        sender: Email sender string (e.g., "Store <email@store.com>")
+    
+    Returns:
+        True if email should be excluded, False if it should be processed
+    """
+    # Personal email domains to exclude (for security/privacy)
+    personal_domains = [
+        'gmail.com', 'googlemail.com',
+        'yahoo.com', 'yahoo.co.in', 'ymail.com',
+        'hotmail.com', 'outlook.com', 'live.com', 'msn.com',
+        'aol.com',
+        'icloud.com', 'me.com', 'mac.com',
+        'protonmail.com', 'proton.me',
+        'mail.com',
+        'zoho.com', 'zohomail.com',
+        'gmx.com', 'gmx.net',
+    ]
+    
+    # No-reply and automated email prefixes to exclude
+    noreply_prefixes = [
+        'noreply', 'no-reply', 'no_reply', 'donotreply', 'do-not-reply',
+        'mailer-daemon', 'postmaster', 'bounce', 'return-path',
+        'automated', 'auto-reply', 'autoreply', 'notification',
+    ]
+    
+    # Testing exception - allow emails from this domain
+    allowed_test_domains = ['innovinlabs.com']
+    
+    try:
+        # Extract email address from sender (handles "Name <email@domain.com>" format)
+        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', sender)
+        if not email_match:
+            return False  # Can't determine, allow it
+        
+        email_address = email_match.group(0).lower()
+        email_prefix = email_address.split('@')[0]
+        domain = email_address.split('@')[1]
+        
+        # Allow testing domain
+        if any(domain.endswith(test_domain) for test_domain in allowed_test_domains):
+            return False  # Don't exclude
+        
+        # Exclude no-reply and automated emails (including from Google)
+        if any(prefix in email_prefix for prefix in noreply_prefixes):
+            return True  # Exclude
+        
+        # Exclude personal email domains
+        if any(domain.endswith(personal_domain) for personal_domain in personal_domains):
+            return True  # Exclude
+        
+        return False  # Not a personal domain, allow it
+        
+    except Exception:
+        return False  # If parsing fails, allow the email
 
 
 def fetch_emails(service, max_results: int = 50, query: str = "") -> List[Dict]:
@@ -57,16 +122,24 @@ def fetch_emails(service, max_results: int = 50, query: str = "") -> List[Dict]:
         
         print(f"   Found {len(messages)} emails. Fetching details...")
         
-        # Step 2: Fetch full details for each message
+        # Step 2: Fetch full details for each message with filtering
+        excluded_count = 0
         for i, msg in enumerate(messages, 1):
             email_data = get_email_details(service, msg['id'])
             if email_data:
+                # SECURITY: Filter out personal email domains
+                if is_personal_or_excluded_email(email_data.get('sender', '')):
+                    excluded_count += 1
+                    continue  # Skip this email
+                
                 emails.append(email_data)
             
             # Progress indicator
             if i % 10 == 0:
                 print(f"   Processed {i}/{len(messages)} emails...")
         
+        if excluded_count > 0:
+            print(f"   ℹ️  Excluded {excluded_count} personal email(s) for security")
         print(f"✓ Successfully fetched {len(emails)} emails")
         
     except Exception as e:
@@ -119,7 +192,8 @@ def get_email_details(service, msg_id: str) -> Optional[Dict]:
             'sender': sender,
             'date': date,
             'body': body,
-            'snippet': message.get('snippet', '')
+            'snippet': message.get('snippet', ''),
+            'payload': message.get('payload', {})  # Include payload for image extraction
         }
         
     except Exception as e:

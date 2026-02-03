@@ -32,6 +32,7 @@ from datetime import datetime
 def extract_membership_dates(body: str) -> Tuple[str, str]:
     """
     Extract start date and expiry date from membership email body.
+    Enhanced to find renewal/expiry dates from store membership emails.
     
     Args:
         body: Email body content
@@ -42,27 +43,28 @@ def extract_membership_dates(body: str) -> Tuple[str, str]:
     start_date = ""
     expiry_date = ""
     
-    # Common date patterns
-    # "Start Date: January 20, 2026"
-    # "Expiry Date: January 19, 2027"
-    # "Valid from: 01/20/2026"
-    # "Expires: 01/19/2027"
-    # "Membership Start: Jan 20, 2026"
-    # "Renewal Date: January 19, 2027"
+    # Pattern for various date formats (including ordinal suffixes like "15th", "1st", "2nd")
+    # Also match dates without year (like "April 15th")
+    date_pattern = r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?|\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}|\d{4}[/\-]\d{1,2}[/\-]\d{1,2}'
     
-    # Pattern for various date formats
-    date_pattern = r'(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}|\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}|\d{4}[/\-]\d{1,2}[/\-]\d{1,2}'
-    
-    # Start date patterns
+    # Start date patterns - more comprehensive
     start_patterns = [
-        rf'(?:Start\s*Date|Membership\s*Start|Valid\s*from|Starts?\s*on|Effective\s*Date|Begin(?:s|ning)?\s*Date)\s*[:\s]+({date_pattern})',
-        rf'(?:Started|Activated)\s*(?:on)?\s*[:\s]+({date_pattern})',
+        rf'(?:Start\s*Date|Membership\s*Start(?:ed)?|Valid\s*from|Starts?\s*on|Effective\s*Date|Begin(?:s|ning)?\s*Date|Activated\s*on|Member\s*since)\s*[:\s]+({date_pattern})',
+        rf'(?:Started|Activated|Enrolled)\s*(?:on)?\s*[:\s]*({date_pattern})',
+        rf'(?:Your\s+membership\s+(?:started|begins?)|Membership\s+active\s+from)\s*[:\s]*({date_pattern})',
     ]
     
-    # Expiry date patterns
+    # Expiry/renewal date patterns - enhanced
     expiry_patterns = [
-        rf'(?:Expiry\s*Date|Expiration\s*Date|Expires?\s*on|Valid\s*(?:until|through|till)|End\s*Date|Renewal\s*Date|Next\s*Renewal)\s*[:\s]+({date_pattern})',
-        rf'(?:Expires?|Renews?)\s*[:\s]+({date_pattern})',
+        rf'(?:Expiry\s*Date|Expiration\s*Date|Expires?\s*on|Valid\s*(?:until|through|till)|End\s*Date|Renewal\s*Date|Next\s*Renewal|Renew(?:al|s)?\s*(?:on|date)?)\s*[:\s]*({date_pattern})',
+        rf'(?:Expires?|Renews?|Auto[-\s]?renew(?:s|al)?)\s*[:\s]*({date_pattern})',
+        rf'(?:Your\s+membership\s+(?:expires?|renews?)|Membership\s+(?:expires?|valid)\s+(?:until|through|till)?)\s*[:\s]*({date_pattern})',
+        rf'(?:Annual\s+fee\s+due|Payment\s+due)\s*[:\s]*({date_pattern})',
+        # Catch "Renewal coming April 15th" or "Renews April 15th"
+        rf'(?:Renewal\s+coming|Renews?\s+on|Due\s+on)\s+({date_pattern})',
+        rf'(?:Membership\s+)?(?:expires?|renews?|valid\s+until)\s+({date_pattern})',
+        # Catch promotional offer expiry dates like "thru Feb 28th" or "through March 15th"
+        rf'(?:thru|through|until|till)\s+({date_pattern})',
     ]
     
     # Search for start date
@@ -77,7 +79,32 @@ def extract_membership_dates(body: str) -> Tuple[str, str]:
         match = re.search(pattern, body, re.IGNORECASE)
         if match:
             expiry_date = match.group(1).strip()
+            # If date doesn't have a year, add current/next year
+            if re.match(r'^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{1,2}(?:st|nd|rd|th)?$', expiry_date, re.IGNORECASE):
+                from datetime import datetime
+                current_year = datetime.now().year
+                expiry_date = f"{expiry_date}, {current_year}"
             break
+    
+    # If no dates found, look for duration mentions (e.g., "annual", "1 year")
+    if not expiry_date and start_date:
+        duration_match = re.search(r'(?:annual|yearly|1\s*year|12\s*month)', body, re.IGNORECASE)
+        if duration_match:
+            # Calculate expiry as 1 year from start
+            try:
+                from datetime import datetime, timedelta
+                if '/' in start_date or '-' in start_date:
+                    # Parse MM/DD/YYYY or similar
+                    parts = re.split(r'[/\-]', start_date)
+                    if len(parts) == 3:
+                        if len(parts[2]) == 4:  # YYYY
+                            start_dt = datetime(int(parts[2]), int(parts[0]), int(parts[1]))
+                        else:  # YY
+                            start_dt = datetime(2000 + int(parts[2]), int(parts[0]), int(parts[1]))
+                        expiry_dt = start_dt + timedelta(days=365)
+                        expiry_date = expiry_dt.strftime("%B %d, %Y")
+            except:
+                pass
     
     return start_date, expiry_date
 
@@ -137,11 +164,15 @@ def extract_coupon_details(body: str) -> Tuple[str, str]:
         r'(?:Apply|Enter|Use)\s+(?:code\s+)?["\']?([A-Z0-9]{4,20})["\']?',
     ]
     
-    # Validity patterns
+    # Validity patterns - enhanced to catch more date formats
     validity_patterns = [
-        r'(?:Valid(?:ity)?|Expires?|Valid\s*(?:until|through|till)|Offer\s*(?:valid|ends)|Expiry)\s*[:\s]+(.+?)(?:\n|$)',
-        r'(?:Valid\s*(?:from|until|through|till))\s*[:\s]+(.+?)(?:\n|$)',
-        r'(?:Offer\s*ends?|Expires?\s*on)\s*[:\s]+(.+?)(?:\n|$)',
+        # Only match actual dates, not random "valid" text
+        r'(?:Valid(?:ity)?|Expires?|Expiry)\s*[:\s]+([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})',
+        r'(?:Valid(?:ity)?|Expires?|Expiry)\s*[:\s]+(\d{1,2}/\d{1,2}/\d{2,4})',
+        r'(?:Valid\s*(?:from|until|through|till))\s*[:\s]+([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})',
+        r'(?:Offer\s*ends?|Expires?\s*on|End(?:s|ing)\s*(?:on|date)?)\s*[:\s]*([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})',
+        # Time-based phrases - only specific ones
+        r'(?:ends?\s+)((?:today|tonight|tomorrow|this\s+(?:week(?:end)?|month)|(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day))',
     ]
     
     # Search for coupon code
@@ -189,10 +220,12 @@ def create_structured_json(results: Dict[str, List[Dict]],
             "summary": {
                 "total_membership": len(results.get('membership', [])),
                 "total_offer": len(results.get('offer', [])),
+                "total_giftcard": len(results.get('giftcard', [])),
                 "total_coupon": len(results.get('coupon', []))
             },
             "membership": {},
             "offer": {},
+            "giftcard": {},
             "coupon": {}
         }
     }
@@ -201,19 +234,99 @@ def create_structured_json(results: Dict[str, List[Dict]],
     
     # Process Memberships
     for email in results.get('membership', []):
-        membership_name = membership_extractor(email.get('subject', ''), email.get('body', ''))
-        # Extract dates from email body
+        sender = email.get('sender', '')
+        subject = email.get('subject', '')
         body = email.get('body', '')
+        
+        # Extract membership name (may be generic like "Membership")
+        membership_name = membership_extractor(subject, body)
+        
+        # Try to extract store name from footer or subject for better identification
+        footer_store = email.get('footer_store_name')
+        
+        # If membership name is generic, try to get store name
+        if membership_name in ['Membership', 'Member', 'Subscriber']:
+            # Priority: footer > domain
+            if footer_store:
+                membership_name = f"{footer_store} Membership"
+            elif '@' in sender:
+                # Try domain extraction
+                domain_store = company_extractor(sender, subject, body)
+                if domain_store and domain_store != "Unknown Store":
+                    membership_name = f"{domain_store} Membership"
+        
+        # Extract description from subject and body
+        description_parts = []
+        
+        # Check for discount/offer in subject or body
+        discount_patterns = [
+            r'(\d+%\s+off[^.]*)',
+            r'(\$\d+\s+off[^.]*)',
+            r'(discount[^.]*)',
+            r'(gift for you)',
+            r'(anniversary[^.]*)',
+            r'(birthday[^.]*)',
+        ]
+        
+        for pattern in discount_patterns:
+            match = re.search(pattern, subject + " " + body[:500], re.IGNORECASE)
+            if match:
+                desc = match.group(1).strip()
+                if len(desc) < 100:  # Avoid too long descriptions
+                    description_parts.append(desc)
+                    break
+        
+        # Extract dates from email body (expiry/validity)
         start_date, expiry_date = extract_membership_dates(body)
+        
+        # Also check footer for expiry date
+        footer_offers = email.get('footer_offers', {})
+        if not expiry_date and footer_offers.get('expiry_date'):
+            expiry_date = footer_offers['expiry_date']
         
         # If no start date found in body, use email date as fallback
         if not start_date:
             start_date = email.get('date', '')
         
         data["membership"][membership_name] = {
-            "from": email.get('sender', ''),
+            "from": sender,
+            "subject": subject,
+            "description": ' | '.join(description_parts) if description_parts else subject[:100],
             "start_date": start_date,
-            "expiry_date": expiry_date,
+            "expiry_date": expiry_date if expiry_date else "No expiry",
+            "status": "Active"
+        }
+    
+    # Process Gift Cards
+    for email in results.get('giftcard', []):
+        sender = email.get('sender', '')
+        subject = email.get('subject', '')
+        body = email.get('body', '')
+        
+        # Extract store name
+        footer_store = email.get('footer_store_name')
+        if footer_store:
+            store_name = footer_store
+        else:
+            store_name = company_extractor(sender, subject, body)
+            if store_name == "Unknown Store":
+                store_name = "Gift Card"
+        
+        # Get gift card details
+        giftcard_details = email.get('giftcard_details', {})
+        
+        # Create unique key with timestamp to handle multiple gift cards from same store
+        timestamp = email.get('date', '')
+        card_key = f"{store_name} - {timestamp[:16]}" if timestamp else store_name
+        
+        data["giftcard"][card_key] = {
+            "from": sender,
+            "subject": subject,
+            "date": timestamp,
+            "card_number": giftcard_details.get('card_number', 'N/A'),
+            "pin": giftcard_details.get('pin', 'N/A'),
+            "value": giftcard_details.get('value', 'N/A'),
+            "redemption_url": giftcard_details.get('redemption_url', 'N/A'),
             "status": "Active"
         }
     
@@ -228,21 +341,122 @@ def create_structured_json(results: Dict[str, List[Dict]],
     
     # Process Coupons (grouped by store)
     for email in results.get('coupon', []):
-        store_name = company_extractor(email.get('sender', ''), email.get('subject', ''), email.get('body', ''))
-        coupon_desc = extract_coupon_description(email.get('subject', ''))
-        
-        # Extract coupon code and validity from body
+        # Priority for store name: Domain > Footer > Images
+        # This matches the smart extraction flow in analyzer.py
+        sender = email.get('sender', '')
+        subject = email.get('subject', '')
         body = email.get('body', '')
-        coupon_code, validity = extract_coupon_details(body)
+        footer_store = email.get('footer_store_name')
+        image_stores = email.get('image_stores', [])
+        
+        # 1. Try domain extraction first (skip test emails)
+        store_name = None
+        if '@innovinlabs.com' not in sender.lower():
+            domain_store = company_extractor(sender, subject, body)
+            if domain_store and domain_store != "Unknown Store":
+                store_name = domain_store
+        
+        # 2. If no domain store, try footer
+        if not store_name and footer_store:
+            store_name = footer_store
+        
+        # 3. If no footer store, try images (OCR)
+        if not store_name and image_stores:
+            store_name = image_stores[0]
+        
+        # 4. Fallback to "Unknown Store"
+        if not store_name:
+            store_name = "Unknown Store"
+        
+        coupon_desc = extract_coupon_description(subject)
+        
+        # MERGE footer and image data - prioritize footer, supplement with OCR
+        footer_offers = email.get('footer_offers', {})
+        image_offers = email.get('image_offers', [])
+        
+        # Collect all offers (footer + image offers)
+        all_offers = []
+        
+        # Primary offer from footer
+        footer_discount = None
+        if footer_offers.get('discount_details'):
+            footer_discount = ', '.join(footer_offers['discount_details'])
+        elif footer_offers.get('discounts'):
+            footer_discount = ', '.join(footer_offers['discounts'])
+        
+        footer_promo = ', '.join(footer_offers['promo_codes']) if footer_offers.get('promo_codes') else None
+        footer_expiry = footer_offers.get('expiry_date')
+        
+        # If we have footer data, add as first offer
+        if footer_discount or footer_promo or footer_expiry:
+            all_offers.append({
+                'discount_details': footer_discount if footer_discount else None,
+                'coupon_code': footer_promo if footer_promo else None,
+                'expiry_date': footer_expiry if footer_expiry else None,
+                'source': 'footer'
+            })
+        
+        # Add image offers if they provide additional/missing information
+        for img_offer in image_offers:
+            discount = img_offer.get('discount')
+            promo = img_offer.get('promo_code')
+            expiry = img_offer.get('expiry_date')
+            
+            # Only add if it provides new/different information
+            if discount or promo or expiry:
+                # Check if this is a duplicate of existing offer
+                is_duplicate = False
+                for existing in all_offers:
+                    # Consider it duplicate if discount matches
+                    if existing['discount_details'] == discount:
+                        is_duplicate = True
+                        # But update if image has additional info
+                        if promo and not existing['coupon_code']:
+                            existing['coupon_code'] = promo
+                        if expiry and not existing['expiry_date']:
+                            existing['expiry_date'] = expiry
+                        break
+                
+                if not is_duplicate:
+                    all_offers.append({
+                        'discount_details': discount if discount else None,
+                        'coupon_code': promo if promo else None,
+                        'expiry_date': expiry if expiry else None,
+                        'source': 'ocr'
+                    })
+        
+        # Fallback: extract from body if no offers found
+        if not all_offers:
+            coupon_code_fallback, validity_fallback = extract_coupon_details(body)
+            
+            # Check subject for expiry info
+            validity = validity_fallback
+            if not validity:
+                if re.search(r'(?:ends?\s+(?:today|tonight|tomorrow|this\s+week|friday|sunday|monday))', subject, re.IGNORECASE):
+                    validity_match = re.search(r'(?:ends?\s+)((?:today|tonight|tomorrow|this\s+week(?:end)?|(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day))', subject, re.IGNORECASE)
+                    if validity_match:
+                        validity = f"Ends {validity_match.group(1)}"
+            
+            all_offers.append({
+                'discount_details': None,
+                'coupon_code': coupon_code_fallback,
+                'expiry_date': validity,
+                'source': 'body'
+            })
         
         if store_name not in data["coupon"]:
             data["coupon"][store_name] = []
         
-        data["coupon"][store_name].append({
-            "coupon": coupon_desc,
-            "coupon_code": coupon_code,
-            "validity": validity
-        })
+        # Add all offers for this store (supports multiple offers per email)
+        for offer in all_offers:
+            data["coupon"][store_name].append({
+                "coupon": coupon_desc,
+                "discount_details": offer['discount_details'] if offer['discount_details'] else None,
+                "coupon_code": offer['coupon_code'] if offer['coupon_code'] else None,
+                "validity": offer['expiry_date'] if offer['expiry_date'] else None,
+                "expiry_date": offer['expiry_date'] if offer['expiry_date'] else None,
+                "source": offer['source']  # Track where data came from: footer/ocr/body
+            })
     
     return output
 
@@ -621,9 +835,19 @@ def generate_html_viewer(json_file: str = "email_analysis.json",
             for coupon in coupons:
                 coupon_code = coupon.get('coupon_code', '') or 'N/A'
                 validity = coupon.get('validity', '') or 'N/A'
+                discount_details = coupon.get('discount_details', '')
+                
                 html_content += f'''
                             <div class="coupon-item">
                                 <div class="coupon-name">🎟️ {coupon['coupon']}</div>
+'''
+                # Show discount details if available
+                if discount_details:
+                    html_content += f'''
+                                <div class="coupon-code">💰 <strong>{discount_details}</strong></div>
+'''
+                
+                html_content += f'''
                                 <div class="coupon-code">🔑 Code: <strong>{coupon_code}</strong></div>
                                 <div class="coupon-validity">⏰ Valid: {validity}</div>
                             </div>

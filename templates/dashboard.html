@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Email Analyzer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 30px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .navbar-brand {
+            color: white;
+            font-size: 1.5rem;
+            font-weight: 700;
+            text-decoration: none;
+        }
+        
+        .navbar-user {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .user-email {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 0.9rem;
+        }
+        
+        .logout-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+        
+        .logout-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+        
+        h1 {
+            color: #333;
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+        }
+        
+        label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 0.95rem;
+        }
+        
+        .label-hint {
+            font-weight: 400;
+            color: #888;
+            font-size: 0.85rem;
+        }
+        
+        input[type="number"], select {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        input[type="number"]:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .checkbox-group input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+        
+        .checkbox-group label {
+            margin-bottom: 0;
+            cursor: pointer;
+        }
+        
+        .analyze-btn {
+            width: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 16px;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .analyze-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+        }
+        
+        .analyze-btn:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: none;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .analyze-btn.loading .spinner {
+            display: block;
+        }
+        
+        .analyze-btn.loading .btn-text {
+            display: none;
+        }
+        
+        .quick-options {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .quick-btn {
+            padding: 10px 20px;
+            background: #f0f0f0;
+            border: 2px solid transparent;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+        
+        .quick-btn:hover {
+            background: #e0e0e0;
+        }
+        
+        .quick-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .error-message {
+            background: #fee2e2;
+            color: #dc2626;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            display: none;
+        }
+        
+        .info-box {
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 25px;
+        }
+        
+        .info-box h4 {
+            color: #0369a1;
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+        
+        .info-box p {
+            color: #0c4a6e;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <a href="{{ url_for('dashboard') }}" class="navbar-brand">📧 Email Analyzer</a>
+        <div class="navbar-user">
+            <span class="user-email">{{ user_email }}</span>
+            <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+        </div>
+    </nav>
+    
+    <div class="container">
+        <div class="card">
+            <h1>📊 Analyze Your Emails</h1>
+            <p class="subtitle">Discover memberships, offers, and coupons hidden in your inbox</p>
+            
+            <div class="info-box">
+                <h4>💡 How it works</h4>
+                <p>We scan your emails to identify subscription services (Netflix, Prime), credit card offers (rewards, benefits), and discount coupons from retailers.</p>
+            </div>
+            
+            <form id="analyzeForm">
+                <div class="form-group">
+                    <label>Quick Select</label>
+                    <div class="quick-options">
+                        <button type="button" class="quick-btn active" data-emails="50" data-days="">Last 50 emails</button>
+                        <button type="button" class="quick-btn" data-emails="100" data-days="">Last 100 emails</button>
+                        <button type="button" class="quick-btn" data-emails="200" data-days="30">Last 30 days</button>
+                        <button type="button" class="quick-btn" data-emails="500" data-days="90">Last 90 days</button>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="num_emails">
+                        Number of Emails 
+                        <span class="label-hint">(max to analyze)</span>
+                    </label>
+                    <input type="number" id="num_emails" name="num_emails" value="50" min="10" max="500">
+                </div>
+                
+                <div class="form-group">
+                    <label for="days">
+                        Time Period 
+                        <span class="label-hint">(optional - filter by days)</span>
+                    </label>
+                    <select id="days" name="days">
+                        <option value="">All time (use email count)</option>
+                        <option value="7">Last 7 days</option>
+                        <option value="14">Last 14 days</option>
+                        <option value="30">Last 30 days</option>
+                        <option value="60">Last 60 days</option>
+                        <option value="90">Last 90 days</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="strict_mode" name="strict_mode">
+                        <label for="strict_mode">
+                            Strict Mode 
+                            <span class="label-hint">- Only show emails from known shopping domains</span>
+                        </label>
+                    </div>
+                </div>
+                
+                <button type="submit" class="analyze-btn" id="analyzeBtn">
+                    <span class="btn-text">🔍 Analyze Emails</span>
+                    <div class="spinner"></div>
+                </button>
+                
+                <div class="error-message" id="errorMessage"></div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        // Quick option buttons
+        document.querySelectorAll('.quick-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.quick-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                
+                document.getElementById('num_emails').value = this.dataset.emails;
+                document.getElementById('days').value = this.dataset.days;
+            });
+        });
+        
+        // Form submission
+        document.getElementById('analyzeForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const btn = document.getElementById('analyzeBtn');
+            const errorDiv = document.getElementById('errorMessage');
+            
+            btn.classList.add('loading');
+            btn.disabled = true;
+            errorDiv.style.display = 'none';
+            
+            const formData = new FormData();
+            formData.append('num_emails', document.getElementById('num_emails').value);
+            formData.append('days', document.getElementById('days').value);
+            formData.append('strict_mode', document.getElementById('strict_mode').checked ? 'true' : 'false');
+            
+            try {
+                const response = await fetch('{{ url_for("analyze") }}', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success && data.redirect) {
+                    window.location.href = data.redirect;
+                } else {
+                    throw new Error(data.error || 'Analysis failed');
+                }
+            } catch (error) {
+                errorDiv.textContent = '❌ ' + error.message;
+                errorDiv.style.display = 'block';
+                btn.classList.remove('loading');
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

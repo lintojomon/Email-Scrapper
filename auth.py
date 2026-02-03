@@ -85,7 +85,10 @@ def get_gmail_service():
                 CREDENTIALS_FILE, SCOPES
             )
             # Run local server for OAuth callback
-            creds = flow.run_local_server(port=0)
+            # For web application: Use port 8080 and specify redirect_uri
+            creds = flow.run_local_server(port=8080, 
+                                         open_browser=True,
+                                         redirect_uri_trailing_slash=False)
             print("✓ Authentication successful!")
         
         # Step 3: Save credentials for future runs
