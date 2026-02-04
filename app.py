@@ -17,7 +17,6 @@ import json
 import secrets
 import gc
 from flask import Flask, render_template, redirect, url_for, session, request, jsonify
-from flask_session import Session
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -40,28 +39,38 @@ app.secret_key = os.environ.get('FLASK_SECRET_KEY', secrets.token_hex(32))
 # Detect if running on Vercel (serverless environment)
 IS_VERCEL = os.environ.get('VERCEL') == '1' or os.environ.get('VERCEL_ENV') is not None
 
-# Server-side session configuration (fixes cookie size limit issue)
-# IMPORTANT: Vercel filesystem is read-only except /tmp directory
-app.config['SESSION_TYPE'] = 'filesystem'
-# Use /tmp for Vercel (only writable directory on serverless)
-session_dir = '/tmp/flask_session' if IS_VERCEL else './flask_session'
-app.config['SESSION_FILE_DIR'] = session_dir
-app.config['SESSION_PERMANENT'] = False
-app.config['SESSION_USE_SIGNER'] = True
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
+# Session configuration
+# For Vercel: Use secure cookies (built-in Flask sessions work better on serverless)
+# For Render: Can use filesystem sessions
+if IS_VERCEL:
+    # Use Flask's built-in secure cookie sessions for Vercel
+    app.config['SESSION_TYPE'] = 'null'  # Use Flask default (secure cookies)
+    app.config['SESSION_COOKIE_SECURE'] = True  # HTTPS only
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
+    print("✓ Using secure cookie sessions (Vercel)")
+else:
+    # Use filesystem sessions for Render (more storage)
+    from flask_session import Session
+    app.config['SESSION_TYPE'] = 'filesystem'
+    app.config['SESSION_FILE_DIR'] = './flask_session'
+    app.config['SESSION_PERMANENT'] = False
+    app.config['SESSION_USE_SIGNER'] = True
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
+    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+    
+    # Create session directory if it doesn't exist
+    if not os.path.exists('./flask_session'):
+        os.makedirs('./flask_session', exist_ok=True)
+    
+    # Initialize Flask-Session
+    Session(app)
+    print("✓ Using filesystem sessions (Render)")
+
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
-
-# Create session directory if it doesn't exist (needed for Vercel)
-if not os.path.exists(session_dir):
-    try:
-        os.makedirs(session_dir, exist_ok=True)
-    except Exception as e:
-        print(f"Warning: Could not create session directory: {e}")
-
-# Initialize server-side sessions
-Session(app)
 
 # Gmail API scope - read-only access to emails
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
