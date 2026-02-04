@@ -42,13 +42,22 @@ IS_VERCEL = os.environ.get('VERCEL') == '1' or os.environ.get('VERCEL_ENV') is n
 
 # Server-side session configuration (fixes cookie size limit issue)
 app.config['SESSION_TYPE'] = 'filesystem'
-app.config['SESSION_FILE_DIR'] = './flask_session'
+# Use /tmp for Vercel (only writable directory on serverless)
+session_dir = '/tmp/flask_session' if IS_VERCEL else './flask_session'
+app.config['SESSION_FILE_DIR'] = session_dir
 app.config['SESSION_PERMANENT'] = False
 app.config['SESSION_USE_SIGNER'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+
+# Create session directory if it doesn't exist (needed for Vercel)
+if not os.path.exists(session_dir):
+    try:
+        os.makedirs(session_dir, exist_ok=True)
+    except Exception as e:
+        print(f"Warning: Could not create session directory: {e}")
 
 # Initialize server-side sessions
 Session(app)
