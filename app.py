@@ -41,6 +41,7 @@ app.secret_key = os.environ.get('FLASK_SECRET_KEY', secrets.token_hex(32))
 IS_VERCEL = os.environ.get('VERCEL') == '1' or os.environ.get('VERCEL_ENV') is not None
 
 # Server-side session configuration (fixes cookie size limit issue)
+# IMPORTANT: Vercel filesystem is read-only except /tmp directory
 app.config['SESSION_TYPE'] = 'filesystem'
 # Use /tmp for Vercel (only writable directory on serverless)
 session_dir = '/tmp/flask_session' if IS_VERCEL else './flask_session'
