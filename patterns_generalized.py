@@ -333,8 +333,8 @@ ORDER_REGEX = re.compile('|'.join(ORDER_PATTERNS), re.IGNORECASE)
 
 def is_commercial_domain(sender: str) -> bool:
     """
-    Detect if email is from a commercial/business domain.
-    Uses comprehensive heuristics to identify commercial senders.
+    Detect if email is from a SHOPPING/RETAIL domain only.
+    Strict filtering to avoid false positives from random company domains.
     PRIVACY-FOCUSED: Analyzes only sender domain, not email content.
     """
     if not sender or '@' not in sender:
@@ -366,32 +366,70 @@ def is_commercial_domain(sender: str) -> bool:
         if any(ex in domain for ex in excluded_platforms):
             return False
         
-        # Strong commercial indicators in subdomain/domain
-        commercial_indicators = [
-            'shop', 'store', 'retail', 'buy', 'purchase', 'order',
-            'mail', 'email', 'newsletter', 'marketing', 'promo', 'deals',
-            'offers', 'rewards', 'membership', 'account', 'notification',
-            'ecom', 'commerce', 'cart', 'checkout', 'payment',
-            'customer', 'service', 'support', 'info', 'news',
-            'subscri', 'member', 'card', 'bank', 'finance'
+        # Known major shopping/retail brands (whitelist approach)
+        known_shopping_domains = [
+            'amazon.com', 'ebay.com', 'walmart.com', 'target.com', 'bestbuy.com',
+            'costco.com', 'macys.com', 'nordstrom.com', 'kohls.com', 'jcpenney.com',
+            'homedepot.com', 'lowes.com', 'wayfair.com', 'overstock.com', 'etsy.com',
+            'zappos.com', 'sephora.com', 'ulta.com', 'nike.com', 'adidas.com',
+            'gap.com', 'oldnavy.com', 'bananarepublic.com', 'athleta.com',
+            'victoriassecret.com', 'bathandbodyworks.com', 'bedbathandbeyond.com',
+            'crateandbarrel.com', 'potterybarn.com', 'westelm.com', 'ikea.com',
+            'staples.com', 'officedepot.com', 'petco.com', 'petsmart.com',
+            'chewy.com', 'wholefoodsmarket.com', 'kroger.com', 'safeway.com',
+            'albertsons.com', 'ralphs.com', 'instacart.com', 'shipt.com',
+            'shopify.com', 'square.com', 'stripe.com', 'paypal.com',
+            'rei.com', 'dickssportinggoods.com', 'samsclub.com', 'bjs.com',
+            'traderjoes.com', 'aldi.us', 'lidl.com', 'tjmaxx.com', 'marshalls.com',
+            'homegoods.com', 'ross.com', 'burlington.com', 'dsw.com', 'footlocker.com',
+            'fanatics.com', 'nfl.com', 'nba.com', 'mlb.com', 'underarmour.com',
+            'lululemon.com', 'patagonia.com', 'northface.com', 'columbia.com',
+            'anthropologie.com', 'urbanoutfitters.com', 'freepeople.com',
+            'forever21.com', 'hm.com', 'zara.com', 'uniqlo.com', 'guess.com',
+            'ralphlauren.com', 'calvinklein.com', 'tommy.com', 'express.com',
+            'ae.com', 'abercrombie.com', 'hollisterco.com', 'aeropostale.com',
+            'williams-sonoma.com', 'surlatable.com', 'chefswarehouse.com',
+            'autozone.com', 'advanceautoparts.com', 'oreilly.com', 'pepboys.com',
+            'gamestop.com', 'barnesandnoble.com', 'michaels.com', 'joann.com',
+            'hobbylobby.com', 'acmoore.com', 'partycity.com', 'spirithalloween.com',
+            'build.com', 'houzz.com', 'roomstogo.com', 'ashleyfurniture.com',
+            'bobs.com', 'valuecityfurniture.com', 'americansignaturefurniture.com',
+            'pier1.com', 'kirklands.com', 'worldmarket.com', 'atgstores.com'
         ]
-        if any(indicator in domain for indicator in commercial_indicators):
+        
+        # Check if it's a known shopping domain
+        if any(known in domain for known in known_shopping_domains):
             return True
         
-        # Common no-reply patterns (typically commercial)
-        if any(x in domain for x in ['noreply', 'no-reply', 'donotreply', 'auto-reply']):
+        # STRICT shopping/retail indicators - must have these keywords
+        # Only mark as shopping if domain contains these RETAIL-SPECIFIC terms
+        shopping_indicators = [
+            'shop', 'store', 'retail', 'market', 'mall', 'outlet',
+            'ecom', 'commerce', 'cart', 'deals', 'sale'
+        ]
+        
+        # Must have shopping indicator AND be .com/.shop/.store to qualify
+        has_shopping_keyword = any(indicator in domain for indicator in shopping_indicators)
+        is_commerce_tld = domain.endswith(('.com', '.shop', '.store', '.biz'))
+        
+        if has_shopping_keyword and is_commerce_tld:
             return True
         
-        # TLDs that suggest commercial (not exhaustive but common)
-        commercial_tlds = ['.com', '.shop', '.store', '.biz', '.co', '.inc']
-        if any(domain.endswith(tld) for tld in commercial_tlds):
-            # If it has commercial subdomain or is .com, likely commercial
+        # Explicit shopping TLDs
+        if domain.endswith(('.shop', '.store')):
             return True
         
-        # Banking/financial TLDs
-        if any(domain.endswith(tld) for tld in ['.bank', '.finance']):
+        # Gift card provider domains
+        giftcard_providers = [
+            'freecash.com', 'yougov.com', 'swagbucks.com', 'mypoints.com',
+            'inboxdollars.com', 'prizerebel.com', 'grabpoints.com',
+            'giftcardgranny.com', 'raise.com', 'cardcash.com', 'cardpool.com',
+            'giftcards.com', 'egifter.com', 'gyft.com'
+        ]
+        if any(provider in domain for provider in giftcard_providers):
             return True
-            
+        
+        # If none of the above, it's NOT a shopping domain
         return False
         
     except:
