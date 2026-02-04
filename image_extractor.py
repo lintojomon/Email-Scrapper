@@ -23,8 +23,11 @@ from PIL import Image
 # Try to import Tesseract (for local/Render deployments)
 try:
     import pytesseract
-    # Configure Tesseract path for macOS Homebrew installation
-    pytesseract.pytesseract.tesseract_cmd = '/opt/homebrew/bin/tesseract'
+    # Only set custom path on macOS (Homebrew installation)
+    # On Linux/Render, tesseract is in system PATH
+    if os.path.exists('/opt/homebrew/bin/tesseract'):
+        pytesseract.pytesseract.tesseract_cmd = '/opt/homebrew/bin/tesseract'
+    # Otherwise, pytesseract will find it automatically from PATH
     TESSERACT_AVAILABLE = True
 except ImportError:
     TESSERACT_AVAILABLE = False
