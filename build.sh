@@ -8,6 +8,6 @@ apt-get update
 apt-get install -y tesseract-ocr tesseract-ocr-eng libtesseract-dev
 
 echo "Installing Python dependencies..."
-pip install -r requirements.txt
+pip install -r requirements-render.txt
 
 echo "Build complete!"
