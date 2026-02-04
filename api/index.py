@@ -10,17 +10,9 @@ import os
 # Add parent directory to path to import app modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Import the Flask app
 from app import app
 
-# Vercel serverless function handler
-def handler(request, context):
-    """Vercel serverless handler."""
-    return app(request, context)
-
-# For Vercel, we need to export the Flask app
-# Vercel will handle the WSGI interface
-application = app
-
-# This is important for Vercel
-if __name__ == "__main__":
-    app.run()
+# Export the app for Vercel
+# Vercel automatically detects Flask apps and handles WSGI
+app = app
