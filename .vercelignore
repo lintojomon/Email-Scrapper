@@ -1,0 +1,59 @@
+# Vercel ignore file - exclude unnecessary files from deployment
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Flask
+flask_session/
+instance/
+.webassets-cache
+
+# Testing
+test_*.py
+*_test.py
+debug_*.py
+
+# Credentials (IMPORTANT - never deploy these)
+credentials.json
+credentialsold.json
+latestcredentials.json
+token.json
+creds.json.bak
+
+# Email data
+email_analysis.json
+*.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# Render specific
+render.yaml
+build.sh
+apt-packages.txt
+
+# Local HTML viewers
+email_viewer.html

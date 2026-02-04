@@ -8,20 +8,30 @@ Image Extractor - Download and OCR images from emails
 This module handles:
 - Extracting image URLs from HTML email content
 - Downloading images from URLs
-- Performing OCR on images to extract text
+- Performing OCR on images to extract text (Tesseract or Cloud Vision)
 - Parsing promotional offers, discounts, and expiry dates from images
 """
 
 import re
 import base64
 import io
+import os
 import requests
 from typing import List, Dict, Optional
 from PIL import Image
-import pytesseract
 
-# Configure Tesseract path for macOS Homebrew installation
-pytesseract.pytesseract.tesseract_cmd = '/opt/homebrew/bin/tesseract'
+# Try to import Tesseract (for local/Render deployments)
+try:
+    import pytesseract
+    # Configure Tesseract path for macOS Homebrew installation
+    pytesseract.pytesseract.tesseract_cmd = '/opt/homebrew/bin/tesseract'
+    TESSERACT_AVAILABLE = True
+except ImportError:
+    TESSERACT_AVAILABLE = False
+    print("⚠️  Tesseract not available, will use Cloud Vision API if configured")
+
+# Import cloud OCR
+from cloud_ocr import extract_text_from_image_cloud, get_ocr_provider
 
 
 def extract_image_urls_from_html(html_content: str) -> List[Dict[str, str]]:
@@ -91,6 +101,7 @@ def download_image(url: str, timeout: int = 10) -> Optional[Image.Image]:
 def extract_text_from_image(image: Image.Image) -> str:
     """
     Perform OCR on image to extract text.
+    Uses Tesseract (local) or Cloud Vision API (serverless) based on availability.
     
     Args:
         image: PIL Image object
@@ -99,9 +110,27 @@ def extract_text_from_image(image: Image.Image) -> str:
         Extracted text string
     """
     try:
-        # Perform OCR
-        text = pytesseract.image_to_string(image)
-        return text.strip()
+        # Determine OCR provider
+        ocr_provider = get_ocr_provider()
+        
+        if ocr_provider == 'tesseract' and TESSERACT_AVAILABLE:
+            # Use local Tesseract OCR
+            text = pytesseract.image_to_string(image)
+            return text.strip()
+        
+        elif ocr_provider == 'cloud':
+            # Use Cloud Vision API
+            # Convert PIL Image to bytes
+            img_byte_arr = io.BytesIO()
+            image.save(img_byte_arr, format='PNG')
+            img_bytes = img_byte_arr.getvalue()
+            
+            text = extract_text_from_image_cloud(img_bytes)
+            return text.strip()
+        
+        else:
+            print("   ⚠ No OCR provider available")
+            return ""
     
     except Exception as e:
         print(f"   ⚠ OCR failed: {e}")

@@ -37,6 +37,9 @@ from analyzer import (
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', secrets.token_hex(32))
 
+# Detect if running on Vercel (serverless environment)
+IS_VERCEL = os.environ.get('VERCEL') == '1' or os.environ.get('VERCEL_ENV') is not None
+
 # Server-side session configuration (fixes cookie size limit issue)
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_FILE_DIR'] = './flask_session'
@@ -187,7 +190,9 @@ def analyze():
     strict_mode = request.form.get('strict_mode', 'false') == 'true'
     enable_ocr = request.form.get('enable_ocr', 'true') == 'true'  # OCR enabled by default
     
-    print(f"📧 Analysis requested: {num_emails} emails, OCR={'enabled' if enable_ocr else 'disabled'}")
+    # On Vercel, OCR will use Cloud Vision API instead of Tesseract
+    ocr_provider = "Cloud Vision API" if IS_VERCEL else "Tesseract"
+    print(f"📧 Analysis requested: {num_emails} emails, OCR={'enabled' if enable_ocr else 'disabled'} ({ocr_provider})")
     
     try:
         # Fetch emails
