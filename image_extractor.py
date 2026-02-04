@@ -116,12 +116,7 @@ def extract_text_from_image(image: Image.Image) -> str:
         # Determine OCR provider
         ocr_provider = get_ocr_provider()
         
-        if ocr_provider == 'tesseract' and TESSERACT_AVAILABLE:
-            # Use local Tesseract OCR
-            text = pytesseract.image_to_string(image)
-            return text.strip()
-        
-        elif ocr_provider == 'cloud':
+        if ocr_provider == 'cloud':
             # Use Cloud Vision API
             # Convert PIL Image to bytes
             img_byte_arr = io.BytesIO()
@@ -129,6 +124,11 @@ def extract_text_from_image(image: Image.Image) -> str:
             img_bytes = img_byte_arr.getvalue()
             
             text = extract_text_from_image_cloud(img_bytes)
+            return text.strip()
+        
+        elif ocr_provider == 'tesseract' and TESSERACT_AVAILABLE:
+            # Use local Tesseract OCR
+            text = pytesseract.image_to_string(image)
             return text.strip()
         
         else:
