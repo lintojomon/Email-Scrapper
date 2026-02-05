@@ -101,6 +101,8 @@ def get_ocr_provider() -> str:
     Returns:
         'tesseract', 'cloud', or 'none'
     """
+    import subprocess
+    
     # Check if running on Vercel
     is_vercel = os.environ.get('VERCEL') == '1' or os.environ.get('VERCEL_ENV') is not None
     
@@ -110,12 +112,24 @@ def get_ocr_provider() -> str:
             return 'cloud'
         return 'none'
     
-    # On other platforms, prefer Tesseract (faster, free, local)
+    # First, check if Cloud Vision is available (more reliable on Render)
+    if is_cloud_ocr_available():
+        print("✓ Using Google Cloud Vision API for OCR")
+        return 'cloud'
+    
+    # Fall back to Tesseract if available (faster, free, local)
     try:
         import pytesseract
-        return 'tesseract'
-    except ImportError:
-        # Fall back to Cloud Vision
-        if is_cloud_ocr_available():
-            return 'cloud'
-        return 'none'
+        # Check if tesseract binary is actually installed
+        result = subprocess.run(['tesseract', '--version'], 
+                              capture_output=True, 
+                              timeout=5)
+        if result.returncode == 0:
+            print("✓ Using Tesseract for OCR")
+            return 'tesseract'
+    except (ImportError, FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    
+    # No OCR available
+    print("⚠️  No OCR provider available")
+    return 'none'
