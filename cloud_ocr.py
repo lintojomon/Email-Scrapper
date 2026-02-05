@@ -112,12 +112,7 @@ def get_ocr_provider() -> str:
             return 'cloud'
         return 'none'
     
-    # First, check if Cloud Vision is available (more reliable on Render)
-    if is_cloud_ocr_available():
-        print("✓ Using Google Cloud Vision API for OCR")
-        return 'cloud'
-    
-    # Fall back to Tesseract if available (faster, free, local)
+    # On other platforms (Render/local), prefer Tesseract (faster, free, local)
     try:
         import pytesseract
         # Check if tesseract binary is actually installed
@@ -129,6 +124,11 @@ def get_ocr_provider() -> str:
             return 'tesseract'
     except (ImportError, FileNotFoundError, subprocess.TimeoutExpired):
         pass
+    
+    # Fall back to Cloud Vision if Tesseract not available
+    if is_cloud_ocr_available():
+        print("✓ Using Google Cloud Vision API for OCR (Tesseract not available)")
+        return 'cloud'
     
     # No OCR available
     print("⚠️  No OCR provider available")
