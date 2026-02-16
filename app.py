@@ -347,13 +347,16 @@ def process_results_for_web(results):
                 email.get('body', ''), 
                 email['date']
             )
+            membership_benefits = email.get('membership_benefits', [])
             memberships_dict[membership_name] = {
                 'from': email['sender'],
                 'start_date': start_date,
                 'expiry_date': expiry_date,
                 'status': 'Active',
-                'is_shopping_domain': email.get('is_shopping_domain', False)
+                'is_shopping_domain': email.get('is_shopping_domain', False),
+                'benefits': membership_benefits
             }
+            
     
     # Group offers by unique card names
     offers_dict = {}
@@ -409,6 +412,8 @@ def process_results_for_web(results):
         discounts = footer_offers.get('discounts', [])
         discount_details = footer_offers.get('discount_details', [])
         expiry_date = footer_offers.get('expiry_date')
+        validity_terms = footer_offers.get('validity_terms', [])
+        points_rewards = footer_offers.get('points_rewards', [])
         
         coupons_list.append({
             'id': idx,
@@ -420,6 +425,8 @@ def process_results_for_web(results):
             'discounts': discounts,
             'discount_details': discount_details,
             'expiry_date': expiry_date,
+            'validity_terms': validity_terms,
+            'points_rewards': points_rewards,
             'is_shopping_domain': email.get('is_shopping_domain', False)
         })
     

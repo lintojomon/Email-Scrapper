@@ -324,8 +324,17 @@ def extract_store_name_from_footer(body: str, sender: str = "") -> Optional[str]
     # Priority 2: Extract from contact email domain
     if footer_data['contact_email']:
         try:
-            full_domain = footer_data['contact_email'].split('@')[1]
-            domain = full_domain.split('.')[0]
+            email_part = footer_data['contact_email'].split('@')[1]
+            domain_parts = email_part.split('.')
+            
+            # Skip email marketing subdomains like 'eml', 'mail', 'mkt', 'email'
+            marketing_subdomains = ['eml', 'mail', 'email', 'mkt', 'marketing', 'e', 'em', 'news', 'promo']
+            
+            # If first part is marketing subdomain and there are more parts, use next part
+            if len(domain_parts) >= 3 and domain_parts[0].lower() in marketing_subdomains:
+                domain = domain_parts[1]  # Use second part (actual brand)
+            else:
+                domain = domain_parts[0]  # Use first part
             
             # Clean up and format domain name
             name = domain.replace('_', ' ').replace('-', ' ')
@@ -342,6 +351,10 @@ def extract_store_name_from_footer(body: str, sender: str = "") -> Optional[str]
             # Special handling for common patterns
             if 'jcrew' in name.lower().replace(' ', ''):
                 name = name.replace('Jcrew', 'J.Crew')
+            if 'nordstromrack' in name.lower().replace(' ', ''):
+                name = 'Nordstrom Rack'
+            elif 'nordstrom' in name.lower():
+                name = 'Nordstrom'
             
             if domain and domain.lower() not in ['mail', 'email', 'noreply', 'info', 'newsletter']:
                 return name
@@ -450,6 +463,409 @@ def extract_promo_codes_from_body(body: str) -> List[str]:
     return list(set(promo_codes))
 
 
+def extract_validity_terms(body: str) -> List[str]:
+    """
+    Extract validity/terms information from promotional offers.
+    Captures date ranges, minimum purchase, store restrictions, and usage instructions.
+    Looks for both "Valid" keyword and common symbols (‡, *, †, §, etc.) used for footnotes.
+    
+    Args:
+        body: Email body text
+    
+    Returns:
+        List of validity term strings describing how to avail discounts
+    """
+    terms = []
+    
+    # Strategy 1: Find all "Valid..." statements and extract until next sentence or paragraph
+    segments = re.split(r'(Valid|valid)\s+', body)
+    
+    # Process segments in pairs (keyword + content)
+    for i in range(1, len(segments), 2):
+        if i + 1 < len(segments):
+            keyword = segments[i]
+            content = segments[i + 1]
+            
+            # Extract until we hit a clear sentence break
+            match = re.match(r'([^\.]+(?:\.[^\.]{0,200}(?:checkout|barcode|number|supplies last|minimum|Department)[^\.\n]*)?\.?)', content, re.IGNORECASE)
+            
+            if match:
+                term = match.group(1).strip()
+                # Clean up
+                term = re.sub(r'\s+', ' ', term)
+                term = term.rstrip('.')
+                term = re.split(r'\.\s*(?:Shop|Learn more|Click|View)', term, maxsplit=1)[0].strip()
+                term = term.rstrip('.')
+                term = re.sub(r'\s*Also available:\s*$', '', term, flags=re.IGNORECASE)
+                
+                # Only add if it has meaningful content
+                if any(indicator in term.lower() for indicator in ['/', 'minimum', '$', 'purchase', 'store', 'online', 'department', 'while supplies', 'scan', 'barcode', 'phone', 'offer', 'discount', 'code']):
+                    if term not in terms and len(term) >= 15:
+                        terms.append(term)
+    
+    # Strategy 2: Extract terms marked with common symbols (‡, *, †, §, ¶, etc.)
+    # These symbols are used in footers to denote terms and conditions
+    symbol_patterns = [
+        # Double/triple symbols first (more specific)
+        r'(\*\*\*)\s*([^\n]{15,300}(?:offer|discount|valid|minimum|purchase|exclusion|code|promo|expires?|through|online|store|while supplies)[^\n]{0,200})',
+        r'(\*\*)\s*([^\n]{15,300}(?:offer|discount|valid|minimum|purchase|exclusion|code|promo|expires?|through|online|store|while supplies)[^\n]{0,200})',
+        r'(‡‡)\s*([^\n]{15,300}(?:offer|discount|valid|minimum|purchase|exclusion|code|promo|expires?|through|online|store|while supplies)[^\n]{0,200})',
+        r'(††)\s*([^\n]{15,300}(?:offer|discount|valid|minimum|purchase|exclusion|code|promo|expires?|through|online|store|while supplies)[^\n]{0,200})',
+        r'(§§)\s*([^\n]{15,300}(?:offer|discount|valid|minimum|purchase|exclusion|code|promo|expires?|through|online|store|while supplies)[^\n]{0,200})',
+        
+        # Single symbols
+        r'(\*)\s*([^\n]{15,300}(?:offer|discount|valid|minimum|purchase|exclusion|code|promo|expires?|through|online|store|while supplies)[^\n]{0,200})',
+        r'(‡)\s*([^\n]{15,300}(?:offer|discount|valid|minimum|purchase|exclusion|code|promo|expires?|through|online|store|while supplies)[^\n]{0,200})',
+        r'(†)\s*([^\n]{15,300}(?:offer|discount|valid|minimum|purchase|exclusion|code|promo|expires?|through|online|store|while supplies)[^\n]{0,200})',
+        r'(§)\s*([^\n]{15,300}(?:offer|discount|valid|minimum|purchase|exclusion|code|promo|expires?|through|online|store|while supplies)[^\n]{0,200})',
+        r'(¶)\s*([^\n]{15,300}(?:offer|discount|valid|minimum|purchase|exclusion|code|promo|expires?|through|online|store|while supplies)[^\n]{0,200})',
+        
+        # Superscript numbers (often used as footnote markers)
+        r'([¹²³⁴⁵⁶⁷⁸⁹])\s*([^\n]{15,300}(?:offer|discount|valid|minimum|purchase|exclusion|code|promo|expires?|through|online|store|while supplies)[^\n]{0,200})',
+        
+        # Dollar sign followed by terms (but not prices)
+        r'(\$)\s*(?![\d])(See\s+[^\n]{10,300}(?:offer|discount|valid|minimum|purchase|exclusion|code|promo|expires?|through|online|store)[^\n]{0,200})',
+    ]
+    
+    for pattern in symbol_patterns:
+        matches = re.finditer(pattern, body, re.IGNORECASE)
+        for match in matches:
+            symbol = match.group(1)
+            term_text = match.group(2).strip()
+            
+            # Clean up the term
+            term_text = re.sub(r'\s+', ' ', term_text)
+            # Remove trailing periods/commas
+            term_text = term_text.rstrip('.,;:')
+            # Remove "Also available" or "Shop now" at the end
+            term_text = re.split(r'\.\s*(?:Shop|Also available|Learn more|Click here|View)', term_text, maxsplit=1)[0].strip()
+            
+            # Add symbol prefix to make it clear which symbol this is for
+            if len(term_text) >= 15 and term_text not in [t.replace(f'{symbol} ', '') for t in terms]:
+                # Add symbol marker
+                formatted_term = f"{symbol} {term_text}"
+                if formatted_term not in terms:
+                    terms.append(formatted_term)
+    
+    # Strategy 3: Look for promo code context to associate with discounts
+    code_context_patterns = [
+        r'(?:Use|Enter|Apply)\s+code\s+([A-Z0-9]+)\s+(?:for|to get)\s+([^\.]{10,100})',
+        r'([^\.]{10,100})\s+with\s+code\s+([A-Z0-9]+)',
+    ]
+    
+    for pattern in code_context_patterns:
+        matches = re.finditer(pattern, body, re.IGNORECASE)
+        for match in matches:
+            if len(match.groups()) >= 2:
+                if 'code' in match.group(0).lower()[:20]:
+                    code = match.group(1)
+                    description = match.group(2).strip()
+                else:
+                    description = match.group(1).strip()
+                    code = match.group(2)
+                
+                description = re.sub(r'\s+', ' ', description)
+                description = description.strip('.,;:')
+                
+                if len(description) > 10 and len(code) >= 3:
+                    term_text = f"Use code {code} - {description}"
+                    if term_text not in terms:
+                        terms.append(term_text)
+    
+    # Strategy 4: Standalone minimum purchase requirements (if not already captured)
+    if not any('minimum purchase' in t.lower() for t in terms):
+        min_purchase_pattern = r'\$\d+(?:\.\d{2})?\s+minimum\s+purchase'
+        min_purchase_matches = re.findall(min_purchase_pattern, body, re.IGNORECASE)
+        for match in min_purchase_matches:
+            if match not in terms:
+                terms.append(match)
+    
+    return terms
+
+
+def extract_points_rewards(body: str) -> List[str]:
+    """
+    Extract points/rewards information from email body.
+    Example: "You're 1,000 points from the next $2"
+    
+    Args:
+        body: Email body text
+    
+    Returns:
+        List of points/rewards strings
+    """
+    rewards = []
+    
+    # Pattern 1: "You're X points from the next $Y"
+    points_patterns = [
+        r"You[''']re\s+([\d,]+\s+points\s+from\s+(?:the\s+)?next\s+\$\d+)",
+        r'You have\s+([\d,]+\s+points)',
+        r'([\d,]+\s+points\s+available)',
+        r'Earn\s+([\d,]+\s+(?:bonus\s+)?points)',
+    ]
+    
+    for pattern in points_patterns:
+        matches = re.finditer(pattern, body, re.IGNORECASE)
+        for match in matches:
+            # Get just the matched group
+            context = match.group(1).strip()
+            # Clean up
+            context = re.sub(r'\s+', ' ', context)
+            if context not in rewards and len(context) >= 10:
+                # For "X points from the next $Y", prepend "You're"
+                if 'from the next' in context.lower():
+                    context = "You're " + context
+                rewards.append(context)
+    
+    return rewards
+
+
+def extract_membership_benefits(body: str) -> List[str]:
+    """
+    Extract membership benefits with full conditions and details from email body.
+    Example: "Delivery from Club: Plus members get free Delivery from Club on eligible items 
+    totaling $50 or more pre-tax. Otherwise, there is an $8 fee per order."
+    
+    Args:
+        body: Email body text
+    
+    Returns:
+        List of membership benefit strings with conditions
+    """
+    benefits = []
+    
+    # Strategy 1: Extract benefit details with colon-separated format
+    # Pattern: "Benefit Name: description with conditions..."
+    # Example: "Delivery from Club: Plus members get free Delivery..."
+    colon_pattern = r'\b([A-Z][A-Za-z\s]{5,40}):\s+([^.]{20,300}(?:\.[^.]{0,200})?)'
+    
+    benefit_keywords = ['delivery', 'pickup', 'shipping', 'savings', 'rewards', 'cash back',
+                       'discount', 'access', 'free', 'member', 'exclusive', 'gas', 'fuel',
+                       'services', 'warranty', 'roadside', 'travel', 'streaming', 'unlimited',
+                       'tire', 'optical', 'pharmacy', 'curbside', 'express', 'instant']
+    
+    colon_matches = re.finditer(colon_pattern, body, re.IGNORECASE | re.DOTALL)
+    
+    for match in colon_matches:
+        benefit_name = match.group(1).strip()
+        benefit_desc = match.group(2).strip()
+        
+        # Check if benefit name contains relevant keywords
+        if any(keyword in benefit_name.lower() for keyword in benefit_keywords):
+            # Clean up the description
+            benefit_desc = re.sub(r'\s+', ' ', benefit_desc)
+            # Take up to first 2-3 sentences (up to 300 chars)
+            sentences = benefit_desc.split('.')
+            if len(sentences) > 3:
+                benefit_desc = '. '.join(sentences[:3]) + '.'
+            else:
+                benefit_desc = benefit_desc if benefit_desc.endswith('.') else benefit_desc + '.'
+            
+            full_benefit = f"{benefit_name}: {benefit_desc}"
+            
+            # Avoid duplicates and overly long descriptions
+            if len(full_benefit) <= 400 and full_benefit not in benefits:
+                benefits.append(full_benefit)
+    
+    # Strategy 2: Extract from bullet point lists with full descriptions
+    # Pattern: "• Free Shipping on orders over $35 for members"
+    bullet_pattern = r'[•\-]\s*([A-Z][^\n•\-]{15,250})'
+    bullet_matches = re.finditer(bullet_pattern, body)
+    
+    for match in bullet_matches:
+        benefit = match.group(1).strip()
+        # Clean up
+        benefit = re.sub(r'\s+', ' ', benefit)
+        # Remove trailing punctuation
+        benefit = benefit.rstrip('.,;:')
+        
+        # Check if contains benefit keywords
+        if any(keyword in benefit.lower() for keyword in benefit_keywords):
+            # Ensure it has substance (not just a title)
+            if len(benefit) >= 15 and benefit not in benefits:
+                # Check not already captured as part of colon format
+                is_duplicate = False
+                for existing in benefits:
+                    if benefit.lower() in existing.lower():
+                        is_duplicate = True
+                        break
+                if not is_duplicate:
+                    benefits.append(benefit)
+    
+    # Strategy 3: Extract from footer lists with lookup for details
+    # First, find benefit names from footer (like "Delivery from Club | Curbside Pickup")
+    footer_section = body[-2500:] if len(body) > 2500 else body
+    pipe_pattern = r'([A-Z][A-Za-z\s]{5,35})\s*[|•]'
+    pipe_matches = re.finditer(pipe_pattern, footer_section)
+    
+    benefit_names_found = []
+    for match in pipe_matches:
+        item = match.group(1).strip()
+        if any(keyword in item.lower() for keyword in benefit_keywords):
+            benefit_names_found.append(item)
+    
+    # Now search the body for detailed descriptions of these benefits
+    for benefit_name in benefit_names_found:
+        # Skip if already found with details via colon pattern
+        if any(benefit_name.lower() in b.lower() and ':' in b for b in benefits):
+            continue
+        
+        # Look for this benefit name followed by description in the body
+        # Pattern: "benefit_name ... description with conditions"
+        escaped_name = re.escape(benefit_name)
+        detail_pattern = rf'\b{escaped_name}[:\s]{{0,5}}([^.\n]{{30,300}}(?:\.[^.\n]{{0,150}})?)'
+        
+        detail_match = re.search(detail_pattern, body, re.IGNORECASE | re.DOTALL)
+        if detail_match:
+            description = detail_match.group(1).strip()
+            description = re.sub(r'\s+', ' ', description)
+            
+            # Take first 1-2 sentences
+            sentences = description.split('.')
+            if len(sentences) > 2:
+                description = '. '.join(sentences[:2]) + '.'
+            else:
+                description = description if description.endswith('.') else description + '.'
+            
+            full_benefit = f"{benefit_name}: {description}"
+            
+            if len(full_benefit) <= 400:
+                # Check for duplicates
+                is_duplicate = False
+                for existing in benefits:
+                    if benefit_name.lower() in existing.lower():
+                        is_duplicate = True
+                        break
+                if not is_duplicate:
+                    benefits.append(full_benefit)
+        else:
+            # No detailed description found, just add the benefit name
+            if benefit_name not in benefits and len(benefit_name) >= 8:
+                # Check not already in another benefit
+                is_duplicate = False
+                for existing in benefits:
+                    if benefit_name.lower() in existing.lower():
+                        is_duplicate = True
+                        break
+                if not is_duplicate:
+                    benefits.append(benefit_name)
+    
+    # Strategy 4: Extract common benefit patterns with context
+    # Look for patterns like "Plus members get free delivery..." or "Members save 10% on..."
+    context_patterns = [
+        # "Plus members get free X on Y conditions"
+        r'((?:Plus|Premium|Gold|Member[s]?)\s+(?:members?|get)\s+(?:free|exclusive|unlimited)\s+[^.]{20,200})',
+        # "Free X for members on Y"
+        r'(Free\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}\s+(?:for\s+)?(?:members?|Plus)\s+[^.]{10,150})',
+        # "Members save/get X% on Y"
+        r'(Members?\s+(?:save|get|receive)\s+\d+%[^.]{10,150})',
+        # "Earn X points/rewards on Y"
+        r'(Earn\s+(?:\d+%?|bonus)\s+(?:points|rewards|cash\s+back)[^.]{10,150})',
+    ]
+    
+    for pattern in context_patterns:
+        matches = re.finditer(pattern, body, re.IGNORECASE)
+        for match in matches:
+            benefit = match.group(1).strip()
+            benefit = re.sub(r'\s+', ' ', benefit)
+            
+            # Ensure ends with period
+            if not benefit.endswith('.'):
+                # Try to extend to end of sentence
+                start_pos = match.start(1)
+                end_pos = match.end(1)
+                # Look ahead for sentence end
+                remaining = body[end_pos:end_pos+150]
+                sentence_end = re.search(r'^[^.]*\.', remaining)
+                if sentence_end:
+                    benefit = benefit + sentence_end.group(0)
+                else:
+                    benefit = benefit + '.'
+            
+            if len(benefit) >= 20 and len(benefit) <= 400:
+                # Check for duplicates
+                is_duplicate = False
+                for existing in benefits:
+                    if benefit.lower() in existing.lower() or existing.lower() in benefit.lower():
+                        is_duplicate = True
+                        break
+                if not is_duplicate:
+                    benefits.append(benefit)
+    
+    # Strategy 5: Extract benefits marked with symbols (‡, *, †, §, ¶, etc.)
+    # Similar to extract_validity_terms but for membership benefits
+    symbol_patterns = [
+        # More specific patterns first (double/triple symbols)
+        (r'\*{3}\s*([^‡*†§¶]{20,350})', '*** '),
+        (r'\*{2}\s*([^‡*†§¶]{20,350})', '** '),
+        (r'‡{2}\s*([^‡*†§¶]{20,350})', '‡‡ '),
+        (r'†{2}\s*([^‡*†§¶]{20,350})', '†† '),
+        (r'§{2}\s*([^‡*†§¶]{20,350})', '§§ '),
+        
+        # Single symbols
+        (r'(?<![‡*†§¶])\*\s*([^‡*†§¶]{20,350})', '* '),
+        (r'(?<![‡*†§¶])‡\s*([^‡*†§¶]{20,350})', '‡ '),
+        (r'(?<![‡*†§¶])†\s*([^‡*†§¶]{20,350})', '† '),
+        (r'(?<![‡*†§¶])§\s*([^‡*†§¶]{20,350})', '§ '),
+        (r'(?<![‡*†§¶])¶\s*([^‡*†§¶]{20,350})', '¶ '),
+        
+        # Superscript numbers
+        (r'[¹²³⁴⁵⁶⁷⁸⁹]+\s*([^‡*†§¶¹²³⁴⁵⁶⁷⁸⁹]{20,350})', ''),
+    ]
+    
+    # Keywords that indicate this is a membership benefit, not just any footnote
+    membership_keywords = ['member', 'membership', 'benefit', 'perk', 'free', 'discount',
+                          'shipping', 'delivery', 'access', 'exclusive', 'save', 'reward',
+                          'points', 'cashback', 'upgrade', 'priority', 'complimentary',
+                          'unlimited', 'premium', 'plus', 'service', 'assistance']
+    
+    for pattern, prefix in symbol_patterns:
+        matches = re.finditer(pattern, body, re.IGNORECASE | re.DOTALL)
+        for match in matches:
+            term = match.group(1).strip()
+            # Only extract if it contains membership-related keywords
+            if any(keyword in term.lower() for keyword in membership_keywords):
+                # Clean up the term
+                term = re.sub(r'\s+', ' ', term)  # Normalize whitespace
+                # Take first 2-3 sentences or up to 350 chars
+                sentences = term.split('.')
+                if len(sentences) > 3:
+                    term = '. '.join(sentences[:3]) + '.'
+                else:
+                    # Find natural end point
+                    if len(term) > 350:
+                        term = term[:350].rsplit(' ', 1)[0] + '...'
+                    elif not term.endswith('.'):
+                        term = term.rstrip('.,;:') + '.'
+                
+                full_term = f"{prefix}{term}" if prefix else term
+                
+                # Check for duplicates
+                is_duplicate = False
+                for existing in benefits:
+                    # Check if significant overlap
+                    if (term.lower()[:30] in existing.lower() or 
+                        existing.lower()[:30] in term.lower()):
+                        is_duplicate = True
+                        break
+                
+                if not is_duplicate and len(full_term) >= 25:
+                    benefits.append(full_term)
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_benefits = []
+    for benefit in benefits:
+        benefit_lower = benefit.lower()
+        # Use first 50 chars as duplicate check (to allow slight variations)
+        key = benefit_lower[:50] if len(benefit_lower) > 50 else benefit_lower
+        if key not in seen:
+            seen.add(key)
+            unique_benefits.append(benefit)
+    
+    return unique_benefits[:15]  # Limit to 15 benefits max
+
+
 def extract_offers_from_body(body: str) -> Dict:
     """
     Extract all promotional offers from email body with detailed conditions.
@@ -465,7 +881,9 @@ def extract_offers_from_body(body: str) -> Dict:
         'discount_details': [],  # New: Detailed discount descriptions
         'promo_codes': [],
         'free_shipping': False,
-        'expiry_date': None
+        'expiry_date': None,
+        'validity_terms': [],  # New: Validity/terms information
+        'points_rewards': []   # New: Points/rewards information
     }
     
     # Extract detailed dollar discounts with conditions and items
@@ -635,8 +1053,17 @@ def extract_offers_from_body(body: str) -> Dict:
     # Extract promo codes
     offers['promo_codes'] = extract_promo_codes_from_body(body)
     
+    # Extract validity terms and conditions
+    offers['validity_terms'] = extract_validity_terms(body)
+    
+    # Extract points/rewards information
+    offers['points_rewards'] = extract_points_rewards(body)
+    
     # Extract expiry dates - GENERALIZED comprehensive patterns
     date_patterns = [
+        # Pattern 0: Date ranges like "1/19/26-2/2/26" or "2/2 - 2/8/26" (HIGHEST PRIORITY)
+        r'(?:Valid|valid|Expires?|expires?)\s+(?:online\s+only\s+)?(?:in-store\s+(?:and|&)\s+online\s+)?(?:from\s+)?(\d{1,2}/\d{1,2}/\d{2,4})\s*[-–—]\s*(\d{1,2}/\d{1,2}/\d{2,4})',
+        
         # Pattern 1: "Offer ends at 11:59 p.m. PT on December 3, 2025"
         r'(?:Offer|Sale|Deal|Promotion|Discount)\s+(?:ends?|expires?|valid)\s+(?:at\s+)?(?:[\d:]+\s*[ap]\.?m\.?\s*)?(?:PT|ET|CT|MT)?\s*(?:on\s+)?([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})',
         
@@ -662,7 +1089,11 @@ def extract_offers_from_body(body: str) -> Dict:
     for pattern in date_patterns:
         match = re.search(pattern, body, re.IGNORECASE)
         if match:
-            offers['expiry_date'] = match.group(1)
+            # For date ranges, take the end date (group 2)
+            if len(match.groups()) >= 2 and match.group(2):
+                offers['expiry_date'] = match.group(2)
+            else:
+                offers['expiry_date'] = match.group(1)
             break
     
     # Remove duplicates from discounts
@@ -697,8 +1128,12 @@ def get_enhanced_email_data(body: str, sender: str = "", subject: str = "") -> D
         if subject_offers['discounts'] and not body_offers['discounts']:
             body_offers['discounts'] = subject_offers['discounts']
     
+    # Extract membership benefits (for membership emails)
+    membership_benefits = extract_membership_benefits(body)
+    
     return {
         'footer': footer_data,
         'offers': body_offers,
-        'store_name': extract_store_name_from_footer(body)
+        'store_name': extract_store_name_from_footer(body),
+        'membership_benefits': membership_benefits
     }

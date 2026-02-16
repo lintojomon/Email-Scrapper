@@ -667,6 +667,7 @@ def extract_company_name(sender: str, subject: str = "", body: str = "") -> str:
         'oneplus': 'OnePlus',
         'ikea': 'IKEA',
         'sephora': 'Sephora',
+        'nordstromrack': 'Nordstrom Rack',
         'nordstrom': 'Nordstrom',
         'macys': 'Macy\'s',
         'jcpenney': 'JCPenney',
@@ -748,8 +749,9 @@ def extract_company_name(sender: str, subject: str = "", body: str = "") -> str:
     # Combine all text for searching known brands
     all_text = f"{sender} {subject} {body}".lower()
     
-    # Try to find brand in text
-    for key, brand in brand_map.items():
+    # Try to find brand in text (sort by length descending to match longer brands first)
+    # This ensures "nordstromrack" is matched before "nordstrom"
+    for key, brand in sorted(brand_map.items(), key=lambda x: len(x[0]), reverse=True):
         if key in all_text:
             return brand
     
@@ -771,8 +773,35 @@ def extract_company_name(sender: str, subject: str = "", body: str = "") -> str:
     # Try to extract from email domain
     if '@' in sender:
         try:
-            domain = sender.split('@')[1].split('>')[0].split('.')[0]
-            if domain and domain.lower() not in ['gmail', 'yahoo', 'hotmail', 'outlook', 'mail', 'email']:
+            # Get email part: user@domain.com
+            email_part = sender.split('@')[1].split('>')[0]
+            
+            # Check if username before @ is a brand name (not generic)
+            username = sender.split('@')[0].split('<')[-1].strip().lower()
+            generic_usernames = ['noreply', 'no-reply', 'info', 'deals', 'offers', 'team', 
+                               'support', 'hello', 'contact', 'mail', 'email', 'news', 
+                               'newsletter', 'notifications', 'updates']
+            
+            # If username is meaningful (not generic), use it
+            if username and not any(generic in username for generic in generic_usernames):
+                # Clean up username (remove hyphens, underscores)
+                clean_name = username.replace('-', ' ').replace('_', ' ').title()
+                if len(clean_name) > 2:
+                    return clean_name
+            
+            # Otherwise, extract from domain (skip email marketing subdomains)
+            domain_parts = email_part.split('.')
+            
+            # Skip email marketing subdomains like 'eml', 'mail', 'mkt', 'email'
+            marketing_subdomains = ['eml', 'mail', 'email', 'mkt', 'marketing', 'e', 'em']
+            
+            # If first part is marketing subdomain and there are more parts, use next part
+            if len(domain_parts) >= 3 and domain_parts[0].lower() in marketing_subdomains:
+                domain = domain_parts[1]  # Use second part (actual brand)
+            else:
+                domain = domain_parts[0]  # Use first part
+            
+            if domain and domain.lower() not in ['gmail', 'yahoo', 'hotmail', 'outlook', 'mail', 'email', 'www']:
                 return domain.capitalize()
         except:
             pass
@@ -911,6 +940,7 @@ def analyze_emails(emails: List[Dict], strict_mode: bool = False, enable_ocr: bo
         footer_data = get_enhanced_email_data(body, sender, subject)
         email['footer_offers'] = footer_data['offers']
         email['footer_store_name'] = footer_data['store_name']
+        email['membership_benefits'] = footer_data.get('membership_benefits', [])
         
         # SMART OCR: Use OCR as fallback when subject/footer data is incomplete
         # Priority flow: 1) Subject/Footer -> 2) OCR (if data incomplete) -> 3) Store name from domain
@@ -1036,6 +1066,14 @@ def print_results(results: Dict[str, List[Dict]], verbose: bool = False):
             print(f"     🏪 Membership: {membership_name}")
             print(f"     From: {email['sender']}")
             print(f"     Date: {email['date']}")
+            
+            # Show membership benefits
+            membership_benefits = email.get('membership_benefits', [])
+            if membership_benefits:
+                print(f"     ✨ Benefits:")
+                for benefit in membership_benefits[:10]:  # Limit to 10 benefits
+                    print(f"        • {benefit}")
+            
             if verbose and email['membership_matches']:
                 print(f"     Keywords: {', '.join(str(m) for m in email['membership_matches'][:5])}")
     
@@ -1124,6 +1162,19 @@ def print_results(results: Dict[str, List[Dict]], verbose: bool = False):
                 
                 if footer_offers.get('promo_codes'):
                     print(f"     📝 Promo Codes: {', '.join(footer_offers['promo_codes'])}")
+                
+                # NEW: Show validity terms (date ranges, minimum purchase, conditions)
+                if footer_offers.get('validity_terms'):
+                    print(f"     📋 Terms:")
+                    for term in footer_offers['validity_terms']:
+                        print(f"        • {term}")
+                
+                # NEW: Show points/rewards information
+                if footer_offers.get('points_rewards'):
+                    print(f"     🎁 Rewards:")
+                    for reward in footer_offers['points_rewards']:
+                        print(f"        • {reward}")
+                
                 if footer_offers.get('free_shipping'):
                     print(f"     📦 Free Shipping Available")
                 if footer_offers.get('expiry_date'):

@@ -27,6 +27,9 @@ wheels/
 credentials.json
 token.json
 client_secret*.json
+credentialsold.json
+creds.json.bak
+latestcredentials.json
 
 # Flask Session
 flask_session/

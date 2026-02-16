@@ -288,13 +288,17 @@ def create_structured_json(results: Dict[str, List[Dict]],
         if not start_date:
             start_date = email.get('date', '')
         
+        # Extract membership benefits
+        membership_benefits = email.get('membership_benefits', [])
+        
         data["membership"][membership_name] = {
             "from": sender,
             "subject": subject,
             "description": ' | '.join(description_parts) if description_parts else subject[:100],
             "start_date": start_date,
             "expiry_date": expiry_date if expiry_date else "No expiry",
-            "status": "Active"
+            "status": "Active",
+            "benefits": membership_benefits
         }
     
     # Process Gift Cards
@@ -386,13 +390,17 @@ def create_structured_json(results: Dict[str, List[Dict]],
         
         footer_promo = ', '.join(footer_offers['promo_codes']) if footer_offers.get('promo_codes') else None
         footer_expiry = footer_offers.get('expiry_date')
+        footer_validity_terms = footer_offers.get('validity_terms', [])
+        footer_points = footer_offers.get('points_rewards', [])
         
         # If we have footer data, add as first offer
-        if footer_discount or footer_promo or footer_expiry:
+        if footer_discount or footer_promo or footer_expiry or footer_validity_terms or footer_points:
             all_offers.append({
                 'discount_details': footer_discount if footer_discount else None,
                 'coupon_code': footer_promo if footer_promo else None,
                 'expiry_date': footer_expiry if footer_expiry else None,
+                'validity_terms': footer_validity_terms if footer_validity_terms else [],
+                'points_rewards': footer_points if footer_points else [],
                 'source': 'footer'
             })
         
@@ -422,6 +430,8 @@ def create_structured_json(results: Dict[str, List[Dict]],
                         'discount_details': discount if discount else None,
                         'coupon_code': promo if promo else None,
                         'expiry_date': expiry if expiry else None,
+                        'validity_terms': [],  # OCR doesn't capture validity terms
+                        'points_rewards': [],  # OCR doesn't capture points
                         'source': 'ocr'
                     })
         
@@ -441,6 +451,8 @@ def create_structured_json(results: Dict[str, List[Dict]],
                 'discount_details': None,
                 'coupon_code': coupon_code_fallback,
                 'expiry_date': validity,
+                'validity_terms': [],  # Fallback doesn't capture validity terms
+                'points_rewards': [],  # Fallback doesn't capture points
                 'source': 'body'
             })
         
@@ -455,6 +467,8 @@ def create_structured_json(results: Dict[str, List[Dict]],
                 "coupon_code": offer['coupon_code'] if offer['coupon_code'] else None,
                 "validity": offer['expiry_date'] if offer['expiry_date'] else None,
                 "expiry_date": offer['expiry_date'] if offer['expiry_date'] else None,
+                "validity_terms": offer.get('validity_terms', []),
+                "points_rewards": offer.get('points_rewards', []),
                 "source": offer['source']  # Track where data came from: footer/ocr/body
             })
     
@@ -707,6 +721,36 @@ def generate_html_viewer(json_file: str = "email_analysis.json",
             color: #888;
             font-size: 0.85em;
         }
+        .coupon-terms, .coupon-rewards {
+            color: #555;
+            font-weight: 600;
+            margin-top: 10px;
+            margin-bottom: 5px;
+        }
+        .terms-list, .rewards-list {
+            list-style: none;
+            padding-left: 0;
+            margin: 5px 0;
+        }
+        .terms-list li, .rewards-list li {
+            padding: 5px 0;
+            padding-left: 20px;
+            position: relative;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .terms-list li:before {
+            content: '•';
+            position: absolute;
+            left: 5px;
+            color: #4776E6;
+        }
+        .rewards-list li:before {
+            content: '★';
+            position: absolute;
+            left: 5px;
+            color: #FFD700;
+        }
         .no-items {
             padding: 20px;
             text-align: center;
@@ -836,6 +880,8 @@ def generate_html_viewer(json_file: str = "email_analysis.json",
                 coupon_code = coupon.get('coupon_code', '') or 'N/A'
                 validity = coupon.get('validity', '') or 'N/A'
                 discount_details = coupon.get('discount_details', '')
+                validity_terms = coupon.get('validity_terms', [])
+                points_rewards = coupon.get('points_rewards', [])
                 
                 html_content += f'''
                             <div class="coupon-item">
@@ -850,6 +896,36 @@ def generate_html_viewer(json_file: str = "email_analysis.json",
                 html_content += f'''
                                 <div class="coupon-code">🔑 Code: <strong>{coupon_code}</strong></div>
                                 <div class="coupon-validity">⏰ Valid: {validity}</div>
+'''
+                # Show validity terms if available
+                if validity_terms:
+                    html_content += '''
+                                <div class="coupon-terms">📋 Terms:</div>
+                                <ul class="terms-list">
+'''
+                    for term in validity_terms:
+                        html_content += f'''
+                                    <li>{term}</li>
+'''
+                    html_content += '''
+                                </ul>
+'''
+                
+                # Show points/rewards if available
+                if points_rewards:
+                    html_content += '''
+                                <div class="coupon-rewards">🎁 Rewards:</div>
+                                <ul class="rewards-list">
+'''
+                    for reward in points_rewards:
+                        html_content += f'''
+                                    <li>{reward}</li>
+'''
+                    html_content += '''
+                                </ul>
+'''
+                
+                html_content += '''
                             </div>
 '''
             html_content += '''

@@ -1,2 +1,0 @@
-# Vercel Configuration
-python_version = "3.11"

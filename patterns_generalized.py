@@ -361,7 +361,12 @@ def is_commercial_domain(sender: str) -> bool:
             'reddit.com', 'twitter.com', 'x.com', 'facebook.com', 'instagram.com',
             'linkedin.com', 'github.com', 'gitlab.com', 'slack.com', 'discord.com',
             'telegram.org', 'whatsapp.com', 'quora.com', 'medium.com', 'substack.com',
-            'stackoverflow.com', 'meetup.com', 'eventbrite.com'
+            'stackoverflow.com', 'meetup.com', 'eventbrite.com',
+            # Dev platforms and tech product newsletters
+            'replit.com', 'vercel.com', 'netlify.com', 'heroku.com', 'digitalocean.com',
+            'aws.amazon.com', 'cloud.google.com', 'azure.microsoft.com',
+            'notion.so', 'figma.com', 'canva.com', 'airtable.com', 'trello.com',
+            'asana.com', 'monday.com', 'atlassian.com', 'jira.com', 'confluence.com'
         ]
         if any(ex in domain for ex in excluded_platforms):
             return False
@@ -540,8 +545,12 @@ def analyze_text(text: str, sender: str = "", body: str = "") -> Dict:
     
     # Check if this is a promotional/sale email
     # Common sale patterns that indicate promotional content, not actual gift cards
-    sale_keywords = r'\b(sale|clearance|promotion|promotional|flash\s*sale|half\s*yearly|end\s*of\s*season|seasonal\s*sale|warehouse\s*sale)\b'
+    sale_keywords = r'\b(sale|clearance|promotion|promotional|flash\s*sale|half\s*yearly|end\s*of\s*season|seasonal\s*sale|warehouse\s*sale|up\s*to\s+\d+%\s*off|\d+%\s*off|\d+%[-\s]*\d+%\s*off)\b'
     is_promotional_sale = bool(re.search(sale_keywords, text, re.IGNORECASE))
+    
+    # Also check body for promotional patterns if available
+    if not is_promotional_sale and body:
+        is_promotional_sale = bool(re.search(sale_keywords, body, re.IGNORECASE))
     
     # STEP 2b: If not found in subject, check body for membership/giftcard patterns
     # (These are important enough to check body when subject doesn't reveal them)
@@ -549,6 +558,13 @@ def analyze_text(text: str, sender: str = "", body: str = "") -> Dict:
         membership_found = is_membership(body)
     if not giftcard_found and body:
         giftcard_found = is_giftcard(body)
+        # If gift card mentioned in body but subject has strong promotional indicators, likely not a gift card email
+        if giftcard_found and is_promotional_sale:
+            # Check if body mentions gift cards as purchase options (not as the main purpose)
+            gift_card_option_pattern = r'\b(buy|purchase|shop for|give|send)\s+(?:a\s+)?gift\s*card'
+            if re.search(gift_card_option_pattern, body, re.IGNORECASE):
+                # This is a promotional email that mentions gift cards as an option, not a gift card email
+                giftcard_found = False
     
     # STEP 2c: Check if email is order/shipping related (should be Normal, not Coupon)
     is_order = is_order_related(text)
