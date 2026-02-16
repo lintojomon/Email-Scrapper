@@ -53,7 +53,8 @@ render.yaml
 build.sh
 runtime.txt
 requirements-vercel.txt
-requirements.txt
+requirements-render.txt
+# requirements.txt is NEEDED for Docker build - do not exclude!
 
 # Test files
 test_*.py

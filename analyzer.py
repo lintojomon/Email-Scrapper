@@ -1009,12 +1009,22 @@ def analyze_emails(emails: List[Dict], strict_mode: bool = False, enable_ocr: bo
         if 'payload' in email:
             del email['payload']
         
-        # In strict mode, only include shopping domain emails
-        if strict_mode and not analysis['is_shopping_domain']:
-            if analysis['category'] in ['Membership', 'Offer', 'GiftCard', 'Coupon']:
-                # Demote to normal if not from shopping domain
-                email['category'] = 'Normal'
-                results['normal'].append(email)
+        # Check if email is from innovinlabs.com (forwarding service)
+        sender_lower = email['sender'].lower()
+        is_innovinlabs = 'innovinlabs.com' in sender_lower
+        
+        # STRICT MODE FILTERING
+        if strict_mode:
+            # In strict mode: ONLY show emails from shopping domains
+            # Exclude: non-shopping domains (including innovinlabs), Replit, newsletters, etc.
+            if not analysis['is_shopping_domain']:
+                # Skip this email completely in strict mode
+                continue
+        else:
+            # NON-STRICT MODE: Show shopping domains + innovinlabs emails
+            # Exclude: Replit, tech newsletters, social media, etc.
+            if not analysis['is_shopping_domain'] and not is_innovinlabs:
+                # Not from shopping domain and not from innovinlabs - skip it
                 continue
         
         # Categorize

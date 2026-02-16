@@ -356,6 +356,11 @@ def is_commercial_domain(sender: str) -> bool:
         if base_domain in personal_domains:
             return False
         
+        # Special case: innovinlabs.com is forwarding service for shopping emails
+        # Not marked as shopping domain (handled separately in strict mode logic)
+        if 'innovinlabs.com' in domain:
+            return False
+        
         # Exclude social/tech/forum platforms
         excluded_platforms = [
             'reddit.com', 'twitter.com', 'x.com', 'facebook.com', 'instagram.com',
@@ -374,7 +379,7 @@ def is_commercial_domain(sender: str) -> bool:
         # Known major shopping/retail brands (whitelist approach)
         known_shopping_domains = [
             'amazon.com', 'ebay.com', 'walmart.com', 'target.com', 'bestbuy.com',
-            'costco.com', 'macys.com', 'nordstrom.com', 'kohls.com', 'jcpenney.com',
+            'costco.com', 'macys.com', 'nordstrom.com', 'nordstromrack.com', 'kohls.com', 'jcpenney.com',
             'homedepot.com', 'lowes.com', 'wayfair.com', 'overstock.com', 'etsy.com',
             'zappos.com', 'sephora.com', 'ulta.com', 'nike.com', 'adidas.com',
             'gap.com', 'oldnavy.com', 'bananarepublic.com', 'athleta.com',
